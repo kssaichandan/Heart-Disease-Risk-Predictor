@@ -90,32 +90,31 @@ Notes:
 
 ```text
 heart-disease-detection/
-├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── user/
-├── models/
-├── results/
-├── src/
-│   ├── ann_model.py
-│   ├── data_augmentation.py
-│   ├── data_cleaning.py
-│   ├── data_download.py
-│   ├── evaluate.py
-│   ├── fuzzy_logic.py
-│   ├── genetic_algorithm.py
-│   ├── random_forest.py
-│   ├── stacking_model.py
-│   ├── svm_model.py
-│   └── user_data.py
-├── static/
-│   ├── css/
-│   └── js/
-├── templates/
-├── app.py
-├── render.yaml
-├── requirements.txt
-└── train.py
+|- data/
+|  |- raw/
+|  |- processed/
+|  `- user/
+|- models/
+|- results/
+|- src/
+|  |- ann_model.py
+|  |- data_augmentation.py
+|  |- data_cleaning.py
+|  |- data_download.py
+|  |- evaluate.py
+|  |- fuzzy_logic.py
+|  |- genetic_algorithm.py
+|  |- random_forest.py
+|  |- stacking_model.py
+|  |- svm_model.py
+|  `- user_data.py
+|- static/
+|  |- css/
+|  `- js/
+|- templates/
+|- app.py
+|- requirements.txt
+`- train.py
 ```
 
 ## Requirements
@@ -228,35 +227,6 @@ The web app includes:
 - save-row training lab
 - fast retrain and full retrain buttons
 - remove added rows with retrain mode choice
-
-## Deployment on Render
-
-Yes, this project can be deployed on Render.
-
-This repo already includes:
-
-- `render.yaml`
-- `app.py` configured to bind to `0.0.0.0` and the `PORT` environment variable
-
-### Simple Render Setup
-
-1. Push this repository to GitHub.
-2. Sign in to Render.
-3. Create a new Web Service.
-4. Connect your GitHub repo.
-5. Use:
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `python app.py`
-6. Deploy.
-
-### Notes About Domains
-
-- Render provides a free `.onrender.com` subdomain for the service.
-- If you want a custom domain, you usually need to own that domain separately and then connect it in Render.
-
-### Important Deployment Note
-
-This app expects trained artifacts in the `models/` directory. The current repo contains those artifacts, so the app can start without retraining on Render as long as those model files are pushed to GitHub with the repository.
 
 ## Troubleshooting
 
