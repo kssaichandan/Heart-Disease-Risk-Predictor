@@ -1,0 +1,66 @@
+{
+  "all_features": [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal"
+  ],
+  "selected_indices": [
+    1,
+    2,
+    3,
+    4,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "selected_feature_names": [
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal"
+  ],
+  "healthy_average": {
+    "age": 52.5854,
+    "sex": 0.561,
+    "cp": 2.7927,
+    "trestbps": 129.128,
+    "chol": 241.0427,
+    "fbs": 0.1402,
+    "restecg": 0.8354,
+    "thalach": 158.378,
+    "exang": 0.1402,
+    "oldpeak": 0.5854,
+    "slope": 1.4085,
+    "ca": 0.2683,
+    "thal": 3.7927
+  },
+  "training_summary": {
+    "raw_rows": 303,
+    "cleaned_rows": 303,
+    "user_rows_used": 0,
+    "training_input_total": 303,
+    "augmented_rows": 1100
+  },
+  "training_mode": "fast"
+}

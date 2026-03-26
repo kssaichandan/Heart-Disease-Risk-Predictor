@@ -1,0 +1,10 @@
+flask>=3.1,<4
+numpy>=2.1,<3
+pandas>=2.2,<3
+scikit-learn>=1.6,<2
+imbalanced-learn>=0.13,<1
+tensorflow>=2.19,<3
+scikit-fuzzy>=0.5,<1
+matplotlib>=3.10,<4
+seaborn>=0.13,<1
+joblib>=1.4,<2

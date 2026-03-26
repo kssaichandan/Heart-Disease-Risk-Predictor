@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Heart Disease Risk Predictor</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <div class="hero-panel">
+        <p class="eyebrow">Clinical Decision Support</p>
+        <h1>Heart Disease Risk Predictor</h1>
+        <p class="hero-copy">
+          Enter a patient profile to estimate heart disease probability using an
+          ensemble of ANN, Random Forest, Fuzzy Logic, and SVM models.
+          Browse the training data, generate sample patient values, add new
+          labeled rows from the website, and retrain directly from the app.
+        </p>
+        <div class="hero-highlights">
+          <div>
+            <span>4 Models</span>
+            <small>Ensemble-based risk estimation</small>
+          </div>
+          <div>
+            <span>Data Explorer</span>
+            <small>Inspect raw, cleaned, augmented, and website-added rows</small>
+          </div>
+          <div>
+            <span>Training Lab</span>
+            <small>Generate samples, save labeled rows, and retrain from the site</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="content-card">
+        {% if not model_ready %}
+        <div class="alert-banner">
+          {{ load_error }}
+        </div>
+        {% endif %}
+
+        <form id="prediction-form" class="prediction-form">
+          <div class="section-heading">
+            <div>
+              <p class="summary-label">Prediction Input</p>
+              <h2>Patient Inputs</h2>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" class="secondary-button" data-sample-kind="healthy">Auto Fill Healthy</button>
+              <button type="button" class="secondary-button" data-sample-kind="at_risk">Auto Fill At-Risk</button>
+              <button type="button" class="secondary-button" data-sample-kind="random">Auto Fill Random</button>
+              <button type="button" class="ghost-button" id="clear-form-button">Clear</button>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              <span>Age <button type="button" class="hint" title="{{ feature_tooltips['age'] }}">i</button></span>
+              <input type="number" name="age" min="1" max="120" />
+            </label>
+
+            <label>
+              <span>Sex <button type="button" class="hint" title="{{ feature_tooltips['sex'] }}">i</button></span>
+              <select name="sex">
+                <option value="">Select</option>
+                <option value="1">Male</option>
+                <option value="0">Female</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Chest Pain Type <button type="button" class="hint" title="{{ feature_tooltips['cp'] }}">i</button></span>
+              <select name="cp">
+                <option value="">Select</option>
+                <option value="0">0 - Typical Angina</option>
+                <option value="1">1 - Atypical Angina</option>
+                <option value="2">2 - Non-anginal Pain</option>
+                <option value="3">3 - Asymptomatic</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Resting Blood Pressure (mmHg) <button type="button" class="hint" title="{{ feature_tooltips['trestbps'] }}">i</button></span>
+              <input type="number" name="trestbps" min="80" max="250" />
+            </label>
+
+            <label>
+              <span>Cholesterol (mg/dl) <button type="button" class="hint" title="{{ feature_tooltips['chol'] }}">i</button></span>
+              <input type="number" name="chol" min="80" max="700" />
+            </label>
+
+            <label>
+              <span>Fasting Blood Sugar &gt; 120mg/dl <button type="button" class="hint" title="{{ feature_tooltips['fbs'] }}">i</button></span>
+              <select name="fbs">
+                <option value="">Select</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Resting ECG <button type="button" class="hint" title="{{ feature_tooltips['restecg'] }}">i</button></span>
+              <select name="restecg">
+                <option value="">Select</option>
+                <option value="0">0 - Normal</option>
+                <option value="1">1 - ST-T Abnormality</option>
+                <option value="2">2 - Left Ventricular Hypertrophy</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Max Heart Rate Achieved <button type="button" class="hint" title="{{ feature_tooltips['thalach'] }}">i</button></span>
+              <input type="number" name="thalach" min="60" max="240" />
+            </label>
+
+            <label>
+              <span>Exercise Induced Angina <button type="button" class="hint" title="{{ feature_tooltips['exang'] }}">i</button></span>
+              <select name="exang">
+                <option value="">Select</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+              </select>
+            </label>
+
+            <label>
+              <span>ST Depression (oldpeak) <button type="button" class="hint" title="{{ feature_tooltips['oldpeak'] }}">i</button></span>
+              <input type="number" name="oldpeak" step="0.1" min="0" max="10" />
+            </label>
+
+            <label>
+              <span>Slope of ST Segment <button type="button" class="hint" title="{{ feature_tooltips['slope'] }}">i</button></span>
+              <select name="slope">
+                <option value="">Select</option>
+                <option value="0">0 - Upsloping</option>
+                <option value="1">1 - Flat</option>
+                <option value="2">2 - Downsloping</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Number of Major Vessels (0-3) <button type="button" class="hint" title="{{ feature_tooltips['ca'] }}">i</button></span>
+              <input type="number" name="ca" min="0" max="3" step="1" />
+            </label>
+
+            <label>
+              <span>Thalassemia <button type="button" class="hint" title="{{ feature_tooltips['thal'] }}">i</button></span>
+              <select name="thal">
+                <option value="">Select</option>
+                <option value="1">1 - Normal</option>
+                <option value="2">2 - Fixed Defect</option>
+                <option value="3">3 - Reversible Defect</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="predict-button">Predict</button>
+            <p id="status-message" class="status-message"></p>
+          </div>
+          <p class="status-message">
+            For prediction and website training rows, blank fields can be auto-filled from the cleaned dataset when needed.
+          </p>
+        </form>
+
+        <section class="training-panel">
+          <div class="section-heading">
+            <div>
+              <p class="summary-label">Training Lab</p>
+              <h2>Save Website Data And Retrain</h2>
+            </div>
+          </div>
+
+          <div class="training-grid">
+            <label>
+              <span>Known Outcome Label</span>
+              <select id="training-target">
+                <option value="1">Heart Disease Present</option>
+                <option value="0">No Heart Disease</option>
+              </select>
+            </label>
+
+            <div class="training-actions">
+              <button type="button" class="secondary-button" id="save-training-row-button">
+                Save Current Inputs As Training Row
+              </button>
+              <button type="button" class="secondary-button retrain-button" id="fast-retrain-button">
+                Fast Retrain
+              </button>
+              <button type="button" class="predict-button retrain-button" id="retrain-button">
+                Full Retrain
+              </button>
+              <button type="button" class="ghost-button danger-ghost-button" id="clear-training-data-button">
+                Remove Added Rows
+              </button>
+            </div>
+          </div>
+          <p class="status-message">
+            You can leave fields blank when saving training rows. Missing values are auto-filled from the cleaned dataset before they are added to retraining. When removing rows, the app will ask whether to use fast retrain, full retrain, or no retrain.
+          </p>
+
+          <div class="status-card">
+            <div>
+              <p class="summary-label">Website Added Rows</p>
+              <h3 id="user-row-count">{{ dataset_counts['user'] }}</h3>
+            </div>
+            <div class="status-details">
+              <p class="summary-label">Retrain Status</p>
+              <p id="retrain-status-message">Training has not started from the website yet.</p>
+              <p class="timer-line" id="retrain-timer-text">Estimated time remaining: --:--</p>
+            </div>
+          </div>
+
+          <div class="log-panel">
+            <p class="summary-label">Latest Retrain Logs</p>
+            <pre id="retrain-logs">No retraining logs yet.</pre>
+          </div>
+        </section>
+
+        <section id="results-panel" class="results-panel hidden">
+          <div class="summary-card">
+            <div>
+              <p class="summary-label">Estimated probability</p>
+              <h2 id="probability-output">0% Risk of Heart Disease</h2>
+            </div>
+            <span id="risk-badge" class="risk-badge">Low</span>
+          </div>
+
+          <div class="advice-card">
+            <p class="summary-label">Clinical guidance</p>
+            <p id="advice-output"></p>
+          </div>
+
+          <div class="chart-grid">
+            <article class="chart-card">
+              <h3>Risk Gauge</h3>
+              <canvas id="gaugeChart"></canvas>
+            </article>
+            <article class="chart-card">
+              <h3>Model Comparison</h3>
+              <canvas id="barChart"></canvas>
+            </article>
+            <article class="chart-card">
+              <h3>Patient vs Healthy Profile</h3>
+              <canvas id="radarChart"></canvas>
+            </article>
+            <article class="chart-card">
+              <h3>Feature Impact</h3>
+              <canvas id="importanceChart"></canvas>
+            </article>
+          </div>
+        </section>
+
+        <section class="dataset-panel">
+          <div class="section-heading">
+            <div>
+              <p class="summary-label">Data Explorer</p>
+              <h2>Browse The Data Used By The App</h2>
+            </div>
+            <div class="toolbar-actions">
+              <div class="count-pill">Raw: <span id="count-raw">{{ dataset_counts['raw'] }}</span></div>
+              <div class="count-pill">Cleaned: <span id="count-cleaned">{{ dataset_counts['cleaned'] }}</span></div>
+              <div class="count-pill">Final Augmented: <span id="count-augmented">{{ dataset_counts['augmented'] }}</span></div>
+              <div class="count-pill">Website Added: <span id="count-user">{{ dataset_counts['user'] }}</span></div>
+              <div class="count-pill">Before Augmentation: <span id="count-training-input">{{ dataset_counts['training_input_total'] }}</span></div>
+              <div class="count-pill">Last Trained Input: <span id="count-trained-input">{{ dataset_counts['trained_input_total'] }}</span></div>
+            </div>
+          </div>
+
+          <div class="dataset-toolbar">
+            <label class="dataset-select-wrap">
+              <span>Dataset</span>
+              <select id="dataset-select">
+                <option value="augmented">Augmented Training Data</option>
+                <option value="cleaned">Cleaned Base Data</option>
+                <option value="raw">Raw Downloaded Data</option>
+                <option value="user">Website Added Data</option>
+              </select>
+            </label>
+
+            <div class="dataset-nav">
+              <span id="dataset-total-label">Total rows: 0</span>
+              <button type="button" class="ghost-button" id="dataset-prev">Previous</button>
+              <span id="dataset-page-label">Page 1 of 1</span>
+              <button type="button" class="ghost-button" id="dataset-next">Next</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="dataset-table">
+              <thead id="dataset-head"></thead>
+              <tbody id="dataset-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+  </body>
+</html>
