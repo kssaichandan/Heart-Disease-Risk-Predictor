@@ -247,6 +247,9 @@ If the website says artifacts are not ready:
 If you remove website-added rows:
 
 - choose `fast`, `full`, or `none` depending on whether you want the current model to forget them immediately
+- <img width="1899" height="992" alt="image" src="https://github.com/user-attachments/assets/25f7d7e2-107e-4afd-adc4-3d375b7c6943" />
+
+
 
 ## License
 
