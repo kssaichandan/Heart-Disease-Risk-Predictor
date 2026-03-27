@@ -16,7 +16,6 @@ import joblib
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
-from tensorflow.keras.models import load_model
 
 from src.ann_model import get_ann_model_path
 from src.data_augmentation import get_augmented_dataset_path
@@ -76,6 +75,7 @@ ARTIFACTS = {}
 LOAD_ERROR = None
 TRAINING_LOCK = threading.Lock()
 TRAINING_THREAD = None
+ARTIFACT_LOCK = threading.Lock()
 DEFAULT_TRAINING_ESTIMATE_SECONDS = 300
 FAST_TRAINING_ESTIMATE_SECONDS = 120
 
@@ -500,7 +500,7 @@ def _run_training_job(mode):
 
         return_code = process.wait()
         if return_code == 0:
-            load_artifacts()
+            ensure_artifacts_loaded(force_reload=True)
             started_at = datetime.fromisoformat(TRAINING_STATUS["started_at"])
             duration_seconds = max(
                 1,
@@ -562,9 +562,18 @@ def _start_retraining(status_message, mode="full"):
         return dict(TRAINING_STATUS)
 
 
+def ensure_artifacts_loaded(force_reload=False):
+    with ARTIFACT_LOCK:
+        if force_reload or not ARTIFACTS:
+            load_artifacts()
+    return LOAD_ERROR is None
+
+
 def load_artifacts():
     global ARTIFACTS, LOAD_ERROR
     try:
+        from tensorflow.keras.models import load_model
+
         with open(_metadata_path(), "r", encoding="utf-8") as metadata_file:
             metadata = json.load(metadata_file)
 
@@ -592,6 +601,7 @@ def load_artifacts():
 
 @app.route("/")
 def index():
+    ensure_artifacts_loaded()
     return render_template(
         "index.html",
         model_ready=LOAD_ERROR is None,
@@ -603,6 +613,7 @@ def index():
 
 @app.route("/predict", methods=["POST"])
 def predict():
+    ensure_artifacts_loaded()
     if LOAD_ERROR is not None:
         return jsonify({"error": LOAD_ERROR}), 503
 
@@ -796,10 +807,6 @@ def retrain_status():
     status["user_rows"] = get_user_row_count()
     status["dataset_counts"] = _get_dataset_counts()
     return jsonify(status)
-
-
-load_artifacts()
-
 
 if __name__ == "__main__":
     app.run(

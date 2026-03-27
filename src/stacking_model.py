@@ -5,7 +5,6 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 import joblib
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
@@ -19,7 +18,12 @@ from src.svm_model import build_svm_estimator
 
 RANDOM_STATE = 42
 
-tf.get_logger().setLevel("ERROR")
+
+def _get_tensorflow():
+    import tensorflow as tf
+
+    tf.get_logger().setLevel("ERROR")
+    return tf
 
 
 def get_meta_model_path():
@@ -33,6 +37,7 @@ class ANNStackingEstimator(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
 
     def fit(self, x, y):
+        tf = _get_tensorflow()
         tf.keras.backend.clear_session()
         tf.keras.utils.set_random_seed(self.random_state)
         self.model_ = build_ann_model(x.shape[1])

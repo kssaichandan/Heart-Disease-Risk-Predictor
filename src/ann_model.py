@@ -6,19 +6,27 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Dense, Dropout, Input
-
-tf.get_logger().setLevel("ERROR")
-
 from src.data_download import get_project_root
 
 RANDOM_STATE = 42
+
+
+def _get_tf_modules():
+    import tensorflow as tf
+    from tensorflow.keras import Sequential
+    from tensorflow.keras.layers import Dense, Dropout, Input
+
+    tf.get_logger().setLevel("ERROR")
+    return tf, Sequential, Dense, Dropout, Input
+
+
+def _get_matplotlib_pyplot():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
 
 
 def get_ann_model_path():
@@ -26,6 +34,8 @@ def get_ann_model_path():
 
 
 def build_ann_model(input_dim):
+    tf, Sequential, Dense, Dropout, Input = _get_tf_modules()
+
     model = Sequential(
         [
             Input(shape=(input_dim,)),
@@ -48,6 +58,8 @@ def build_ann_model(input_dim):
 
 def train_ann_model(x_train, y_train, x_valid, y_valid, epochs=100, batch_size=32):
     try:
+        tf, _, _, _, _ = _get_tf_modules()
+        plt = _get_matplotlib_pyplot()
         os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
         tf.keras.utils.set_random_seed(RANDOM_STATE)
 
