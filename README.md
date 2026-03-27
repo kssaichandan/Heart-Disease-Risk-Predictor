@@ -250,6 +250,9 @@ If you remove website-added rows:
   
 <img width="1899" height="992" alt="image" src="https://github.com/user-attachments/assets/25f7d7e2-107e-4afd-adc4-3d375b7c6943" />
 
+<img width="1793" height="1000" alt="image" src="https://github.com/user-attachments/assets/41a1f8df-da4e-4f54-b5e8-c403a01ef530" />
+
+
 <img width="1856" height="994" alt="image" src="https://github.com/user-attachments/assets/4b35dbc9-42ca-487a-8935-9ed602c2ee19" />
 
 <img width="1881" height="1007" alt="image" src="https://github.com/user-attachments/assets/877b8bdc-aa13-435a-947e-a7f8304ddbdc" />
