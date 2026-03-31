@@ -251,3 +251,9 @@ If you remove website-added rows:
 ## License
 
 MIT
+
+## Recent Updates
+- Added Heart Disease Project Report (esults/Heart_Disease_Project_Report.pdf)
+- Fixed Data Explorer 'Last Trained Input' count bug
+- Updated Model Checkpoints containing recent inputs (ANN, SVM, RF, Meta)
+- New accuracy comparison and confusion matrices charts

@@ -163,16 +163,41 @@ def _load_dataset_by_name(dataset_name):
 
 def _get_dataset_counts():
     training_summary = ARTIFACTS.get("training_summary", {})
-    cleaned_rows = len(_load_dataset_by_name("cleaned"))
-    user_rows = get_user_row_count()
+    
+    cleaned_df = _load_dataset_by_name("cleaned")
+    cleaned_rows = len(cleaned_df)
+    clean_pos = int(cleaned_df["target"].sum()) if "target" in cleaned_df.columns and cleaned_rows > 0 else 0
+    clean_neg = cleaned_rows - clean_pos
+
+    user_df = _load_dataset_by_name("user")
+    user_rows = len(user_df)
+    user_pos = int(user_df["target"].sum()) if "target" in user_df.columns and user_rows > 0 else 0
+    user_neg = user_rows - user_pos
+
+    augmented_df = _load_dataset_by_name("augmented")
+    augmented_total = len(augmented_df)
+    augmented_positive = int(augmented_df["target"].sum()) if "target" in augmented_df.columns else 0
+    augmented_negative = augmented_total - augmented_positive
+
+    input_total = cleaned_rows + user_rows
+    input_pos = clean_pos + user_pos
+    input_neg = clean_neg + user_neg
+
     return {
         "raw": len(_load_dataset_by_name("raw")),
         "cleaned": cleaned_rows,
-        "augmented": len(_load_dataset_by_name("augmented")),
+        "cleaned_positive": clean_pos,
+        "cleaned_negative": clean_neg,
+        "augmented": augmented_total,
+        "augmented_positive": augmented_positive,
+        "augmented_negative": augmented_negative,
         "user": user_rows,
-        "training_input_total": cleaned_rows + user_rows,
-        "trained_input_total": training_summary.get("training_input_total", cleaned_rows),
-        "trained_user_rows": training_summary.get("user_rows_used", 0),
+        "user_positive": user_pos,
+        "user_negative": user_neg,
+        "training_input_total": input_total,
+        "training_input_positive": input_pos,
+        "training_input_negative": input_neg,
+        "trained_input_total": training_summary.get("training_input_total", 0),
     }
 
 
@@ -199,36 +224,33 @@ def _build_dataset_payload(dataset_name, page, page_size):
     }
 
 
-def _build_feature_importance(patient_scaled, healthy_scaled):
+def _build_feature_importance(patient_scaled):
+    import shap
     feature_names = ARTIFACTS["all_features"]
     selected_names = ARTIFACTS["selected_feature_names"]
-    rf_importances = dict(
-        zip(selected_names, ARTIFACTS["rf_model"].feature_importances_.tolist())
-    )
-    contribution_map = {}
-
-    for index, feature_name in enumerate(feature_names):
-        base_weight = rf_importances.get(feature_name, 0.0)
-        deviation = abs(float(patient_scaled[index]) - float(healthy_scaled[index]))
-        contribution_map[feature_name] = base_weight * (0.5 + deviation)
-
-    total = sum(contribution_map.values())
-    if total <= 0:
-        selected_weight = 1.0 / max(len(selected_names), 1)
-        contribution_map = {
-            feature_name: selected_weight if feature_name in selected_names else 0.0
-            for feature_name in feature_names
-        }
-    else:
-        contribution_map = {
-            feature_name: round(value / total, 4)
-            for feature_name, value in sorted(
-                contribution_map.items(),
-                key=lambda item: item[1],
-                reverse=True,
-            )
-        }
-
+    
+    rf_model = ARTIFACTS["rf_model"]
+    selected_scaled = np.array([patient_scaled[ARTIFACTS["selected_indices"]]])
+    
+    try:
+        explainer = shap.TreeExplainer(rf_model)
+        shap_outputs = explainer.shap_values(selected_scaled)
+        
+        if isinstance(shap_outputs, list):
+            target_shap = shap_outputs[1][0]
+        elif len(shap_outputs.shape) == 3:
+            target_shap = shap_outputs[0, :, 1]
+        else:
+            target_shap = shap_outputs[0]
+            
+        contribution_map = {feature: 0.0 for feature in feature_names}
+        for idx, feature_name in enumerate(selected_names):
+            contribution_map[feature_name] = round(float(target_shap[idx]), 4)
+            
+    except Exception as e:
+        print(f"SHAP Error: {e}")
+        contribution_map = {feature: 0.0 for feature in feature_names}
+        
     return contribution_map
 
 
@@ -656,7 +678,7 @@ def predict():
             columns=ARTIFACTS["all_features"],
         )
         healthy_scaled = ARTIFACTS["scaler"].transform(healthy_frame)[0]
-        feature_importance = _build_feature_importance(patient_scaled, healthy_scaled)
+        feature_importance = _build_feature_importance(patient_scaled)
 
         response = {
             "probability": final_probability,

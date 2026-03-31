@@ -90,10 +90,21 @@ function updateTrainingTimer() {
 function setCounts(counts) {
   if (!counts) return;
   if (counts.raw !== undefined) setText("count-raw", counts.raw);
-  if (counts.cleaned !== undefined) setText("count-cleaned", counts.cleaned);
-  if (counts.augmented !== undefined) setText("count-augmented", counts.augmented);
+  
+  if (counts.cleaned !== undefined) {
+    setText("count-cleaned", counts.cleaned);
+    if (counts.cleaned_positive !== undefined) setText("count-cleaned-pos", counts.cleaned_positive);
+    if (counts.cleaned_negative !== undefined) setText("count-cleaned-neg", counts.cleaned_negative);
+  }
+  if (counts.augmented !== undefined) {
+    setText("count-augmented", counts.augmented);
+    if (counts.augmented_positive !== undefined) setText("count-augmented-pos", counts.augmented_positive);
+    if (counts.augmented_negative !== undefined) setText("count-augmented-neg", counts.augmented_negative);
+  }
   if (counts.training_input_total !== undefined) {
     setText("count-training-input", counts.training_input_total);
+    if (counts.training_input_positive !== undefined) setText("count-training-input-pos", counts.training_input_positive);
+    if (counts.training_input_negative !== undefined) setText("count-training-input-neg", counts.training_input_negative);
   }
   if (counts.trained_input_total !== undefined) {
     setText("count-trained-input", counts.trained_input_total);
@@ -101,6 +112,8 @@ function setCounts(counts) {
   if (counts.user !== undefined) {
     setText("count-user", counts.user);
     setText("user-row-count", counts.user);
+    if (counts.user_positive !== undefined) setText("count-user-pos", counts.user_positive);
+    if (counts.user_negative !== undefined) setText("count-user-neg", counts.user_negative);
   }
 }
 
@@ -277,9 +290,17 @@ function createRadarChart(profileComparison) {
 function createImportanceChart(featureImportance) {
   destroyChart("importance");
   const ctx = document.getElementById("importanceChart");
+
   const sortedEntries = Object.entries(featureImportance)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, 13); // Changed to show all 13 inputted features (including those with 0 impact due to GA filtering)
+
+  const dataValues = sortedEntries.map(([, value]) => parseFloat((value * 100).toFixed(1)));
+  const bgColors = dataValues.map((v) => {
+    if (v > 0) return "rgba(255, 99, 132, 0.8)";
+    if (v < 0) return "rgba(75, 192, 192, 0.8)";
+    return "rgba(162, 193, 205, 0.3)"; // Grayish transparent for 0 impact
+  });
 
   chartInstances.importance = new Chart(ctx, {
     type: "bar",
@@ -287,10 +308,10 @@ function createImportanceChart(featureImportance) {
       labels: sortedEntries.map(([key]) => featureLabels[key] || key),
       datasets: [
         {
-          label: "Importance",
-          data: sortedEntries.map(([, value]) => Math.round(value * 100)),
-          backgroundColor: "#7ce7d6",
-          borderRadius: 10,
+          label: "Impact on Risk (%)",
+          data: dataValues,
+          backgroundColor: bgColors,
+          borderRadius: 4,
         },
       ],
     },
@@ -298,18 +319,27 @@ function createImportanceChart(featureImportance) {
       responsive: true,
       maintainAspectRatio: false,
       indexAxis: "y",
+      interaction: {
+        mode: "index",
+        axis: "y",
+        intersect: false
+      },
       animation: { duration: 1200, easing: "easeOutQuart" },
       plugins: {
         legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              let val = context.raw;
+              if (val === 0) return `0% (No Impact)`;
+              return val > 0 ? `+${val}% (Increases Risk)` : `${val}% (Decreases Risk)`;
+            }
+          }
+        }
       },
       scales: {
         x: {
-          beginAtZero: true,
-          max: 100,
-          grid: { color: "rgba(162, 193, 205, 0.12)" },
-          ticks: { color: "#a2c1cd" },
-        },
-        y: {
+          grid: { color: "rgba(162, 193, 205, 0.12)", drawBorder: true },
           grid: { display: false },
           ticks: { color: "#eef7fb" },
         },

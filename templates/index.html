@@ -249,7 +249,8 @@
               <canvas id="radarChart"></canvas>
             </article>
             <article class="chart-card">
-              <h3>Feature Impact</h3>
+              <h3>Explainable AI - Factored Impact</h3>
+              <p style="font-size: 0.85rem; color: #a2c1cd; margin-bottom: 10px;">Powered by SHAP. Explains exactly how much each feature increased or decreased your final risk prediction against the core dataset.</p>
               <canvas id="importanceChart"></canvas>
             </article>
           </div>
@@ -263,10 +264,10 @@
             </div>
             <div class="toolbar-actions">
               <div class="count-pill">Raw: <span id="count-raw">{{ dataset_counts['raw'] }}</span></div>
-              <div class="count-pill">Cleaned: <span id="count-cleaned">{{ dataset_counts['cleaned'] }}</span></div>
-              <div class="count-pill">Final Augmented: <span id="count-augmented">{{ dataset_counts['augmented'] }}</span></div>
-              <div class="count-pill">Website Added: <span id="count-user">{{ dataset_counts['user'] }}</span></div>
-              <div class="count-pill">Before Augmentation: <span id="count-training-input">{{ dataset_counts['training_input_total'] }}</span></div>
+              <div class="count-pill">Cleaned: <span id="count-cleaned">{{ dataset_counts['cleaned'] }}</span> <small style="opacity: 0.8; margin-left: 4px;">(<span id="count-cleaned-pos" style="color: #ff6b6b;" title="Disease">{{ dataset_counts['cleaned_positive'] }}</span> / <span id="count-cleaned-neg" style="color: #7ce7d6;" title="Healthy">{{ dataset_counts['cleaned_negative'] }}</span>)</small></div>
+              <div class="count-pill">Final Augmented: <span id="count-augmented">{{ dataset_counts['augmented'] }}</span> <small style="opacity: 0.8; margin-left: 4px;">(<span id="count-augmented-pos" style="color: #ff6b6b;" title="Disease">{{ dataset_counts['augmented_positive'] }}</span> / <span id="count-augmented-neg" style="color: #7ce7d6;" title="Healthy">{{ dataset_counts['augmented_negative'] }}</span>)</small></div>
+              <div class="count-pill">Website Added: <span id="count-user">{{ dataset_counts['user'] }}</span> <small style="opacity: 0.8; margin-left: 4px;">(<span id="count-user-pos" style="color: #ff6b6b;" title="Disease">{{ dataset_counts['user_positive'] }}</span> / <span id="count-user-neg" style="color: #7ce7d6;" title="Healthy">{{ dataset_counts['user_negative'] }}</span>)</small></div>
+              <div class="count-pill">Before Augmentation: <span id="count-training-input">{{ dataset_counts['training_input_total'] }}</span> <small style="opacity: 0.8; margin-left: 4px;">(<span id="count-training-input-pos" style="color: #ff6b6b;" title="Disease">{{ dataset_counts['training_input_positive'] }}</span> / <span id="count-training-input-neg" style="color: #7ce7d6;" title="Healthy">{{ dataset_counts['training_input_negative'] }}</span>)</small></div>
               <div class="count-pill">Last Trained Input: <span id="count-trained-input">{{ dataset_counts['trained_input_total'] }}</span></div>
             </div>
           </div>
@@ -295,6 +296,17 @@
               <thead id="dataset-head"></thead>
               <tbody id="dataset-body"></tbody>
             </table>
+          </div>
+
+          <div class="dataset-legend">
+            <p class="summary-label" style="margin-bottom: 12px;">Dataset Legend & Schema Info</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.85rem; color: #a2c1cd;">
+              <div class="legend-item"><strong style="color: #dcebf0;">Sex:</strong> 1 = Male, 0 = Female</div>
+              <div class="legend-item"><strong style="color: #dcebf0;">Target:</strong> 1 = Disease Present (<span style="color: #ff6b6b;">Red</span>), 0 = Healthy (<span style="color: #7ce7d6;">Green</span>)</div>
+              <div class="legend-item"><strong style="color: #dcebf0;">CP (Chest Pain):</strong> 0 = Typical Angina, 1 = Atypical, 2 = Non-anginal, 3 = Asymptomatic</div>
+              <div class="legend-item"><strong style="color: #dcebf0;">Fasting Blood Sugar:</strong> 1 = True (> 120 mg/dl), 0 = False</div>
+              <div class="legend-item"><strong style="color: #dcebf0;">ExAng (Exercise Angina):</strong> 1 = Yes, 0 = No</div>
+            </div>
           </div>
         </section>
       </div>
