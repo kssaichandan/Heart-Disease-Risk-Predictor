@@ -9,3 +9,4 @@ matplotlib>=3.10,<4
 seaborn>=0.13,<1
 joblib>=1.4,<2
 shap>=0.40,<1
+lime>=0.2.0.1,<0.3

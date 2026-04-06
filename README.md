@@ -1,6 +1,6 @@
 # Heart Disease Risk Predictor
 
-A complete Flask web application for heart disease risk prediction using multiple machine learning models, fuzzy logic, feature selection, data augmentation, and an ensemble stacking layer.
+A Flask web application for heart disease risk prediction using ANN, Random Forest, SVM, fuzzy logic, genetic feature selection, data augmentation, a stacked ensemble, Random Forest SHAP charts, and on-demand LIME explanations for the final stacked prediction.
 
 ## Live Demo
 
@@ -14,7 +14,8 @@ The app lets a user enter patient information and predicts the probability of he
 - a risk level badge
 - a model comparison chart
 - a radar chart against a healthy profile
-- feature impact scores
+- Random Forest SHAP feature impact scores
+- an on-demand LIME explanation for the final stacked prediction
 - a medical guidance message
 
 The project also includes a website training lab where you can:
@@ -40,6 +41,8 @@ It also uses:
 - Genetic Algorithm for feature selection
 - SMOTE and RandomOverSampler for data balancing and augmentation
 - MinMaxScaler for feature scaling
+- SHAP for Random Forest branch explainability
+- LIME for local explanations of the final stacked ensemble
 
 ## How It Works
 
@@ -60,16 +63,31 @@ At prediction time, the app:
 1. accepts full or partial patient input
 2. auto-fills missing values when needed
 3. scales the input using the saved scaler
-4. keeps only the selected GA features
+4. keeps only the selected GA features for the ANN, Random Forest, and SVM branches
 5. gets probabilities from ANN, Random Forest, Fuzzy Logic, and SVM
 6. sends those 4 probabilities into the saved stacking model
 7. returns the final risk prediction and chart data to the frontend
+8. can generate an on-demand LIME explanation for the final stacked prediction using the same inference pipeline
+
+## Explainability
+
+The app includes two explanation views:
+
+- Random Forest SHAP Impact: explains how the Random Forest branch responds to the current patient input after GA feature selection
+- Stacked Ensemble LIME Explanation: generates a local explanation for the final stacked prediction and can return all 13 patient input features
+
+Notes:
+
+- SHAP is branch-specific and does not explain the final logistic stacking layer by itself.
+- LIME explains the final stacked output locally, so it is an approximation around the current patient case rather than a global model rule.
+- LIME is generated on demand so normal predictions remain fast.
 
 ## Dataset
 
 - Source: UCI Cleveland Heart Disease Dataset
 - Raw rows: 303
 - Cleaned rows: 303
+- Last trained input rows: 313
 - Augmented rows: 1100
 
 ## Latest Saved Metrics
@@ -78,11 +96,11 @@ The current saved metrics in `models/metrics.json` are:
 
 | Model | Accuracy | Precision | Recall | F1 |
 | --- | ---: | ---: | ---: | ---: |
-| ANN | 0.9136 | 0.9027 | 0.9273 | 0.9148 |
-| Random Forest | 0.9864 | 0.9908 | 0.9818 | 0.9863 |
-| Fuzzy Logic | 0.4864 | 0.4920 | 0.8364 | 0.6195 |
+| ANN | 0.9000 | 0.9074 | 0.8909 | 0.8991 |
+| Random Forest | 0.9909 | 1.0000 | 0.9818 | 0.9908 |
+| Fuzzy Logic | 0.4818 | 0.4892 | 0.8273 | 0.6149 |
 | SVM | 0.9773 | 0.9907 | 0.9636 | 0.9770 |
-| Stacked Ensemble | 0.9727 | 0.9815 | 0.9636 | 0.9725 |
+| Stacked Ensemble | 0.9773 | 0.9907 | 0.9636 | 0.9770 |
 
 Notes:
 
@@ -140,12 +158,16 @@ Main Python packages:
 - matplotlib
 - seaborn
 - joblib
+- shap
+- lime
 
 Install everything with:
 
 ```powershell
 pip install -r requirements.txt
 ```
+
+Use the same Python environment for both installation and runtime. If you run the app from `.venv`, install the requirements inside `.venv` too.
 
 ## Quick Start
 
@@ -225,7 +247,8 @@ The web app includes:
 
 - patient prediction form
 - partial-input prediction with automatic value filling
-- gauge, bar, radar, and feature impact charts
+- gauge, bar, radar, and Random Forest SHAP charts
+- on-demand LIME explanation for the final stacked prediction
 - sample generation buttons
 - dataset explorer
 - save-row training lab
@@ -244,29 +267,35 @@ If the website says artifacts are not ready:
 - retrain the models
 - restart `python app.py`
 
+If the LIME explanation is unavailable:
+
+- make sure `lime` is installed in the same Python environment that runs the app
+- run `pip install -r requirements.txt`
+- restart `python app.py`
+
 If you remove website-added rows:
 
 - choose `fast`, `full`, or `none` depending on whether you want the current model to forget them immediately
-  
+
 <img width="1899" height="992" alt="image" src="https://github.com/user-attachments/assets/25f7d7e2-107e-4afd-adc4-3d375b7c6943" />
 
 <img width="1793" height="1000" alt="image" src="https://github.com/user-attachments/assets/41a1f8df-da4e-4f54-b5e8-c403a01ef530" />
 
-
 <img width="1856" height="994" alt="image" src="https://github.com/user-attachments/assets/4b35dbc9-42ca-487a-8935-9ed602c2ee19" />
 
 <img width="1881" height="1007" alt="image" src="https://github.com/user-attachments/assets/877b8bdc-aa13-435a-947e-a7f8304ddbdc" />
-
-
-
-
 
 ## License
 
 MIT
 
 ## Recent Updates
-- Added Heart Disease Project Report (esults/Heart_Disease_Project_Report.pdf)
-- Fixed Data Explorer 'Last Trained Input' count bug
-- Updated Model Checkpoints containing recent inputs (ANN, SVM, RF, Meta)
-- New accuracy comparison and confusion matrices charts
+
+- Added on-demand LIME explanations for the final stacked ensemble
+- Updated the SHAP panel wording so it correctly describes the Random Forest branch
+- Fixed frontend/backend input alignment so `thal` values are encoded consistently
+- Added `lime` to `requirements.txt`
+- Added Heart Disease Project Report (`results/Heart_Disease_Project_Report.pdf`)
+- Fixed Data Explorer `Last Trained Input` count bug
+- Updated model checkpoints containing recent inputs (ANN, SVM, RF, Meta)
+- Refreshed the saved accuracy, confusion matrix, ROC, and training history artifacts

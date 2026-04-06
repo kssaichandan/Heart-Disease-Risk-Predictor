@@ -29,6 +29,7 @@ from src.user_data import (
     append_user_training_row,
     clear_user_training_data,
     get_user_row_count,
+    get_user_data_path,
     load_user_training_data,
     preprocess_user_training_row,
 )
@@ -47,6 +48,28 @@ SLOPE_FORWARD_MAP = {0.0: 1.0, 1.0: 2.0, 2.0: 3.0}
 SLOPE_REVERSE_MAP = {1.0: 0, 2.0: 1, 3.0: 2}
 DATASET_PAGE_SIZE = 20
 CATEGORICAL_FEATURES = {"sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal"}
+LIME_CLASS_NAMES = ["No Heart Disease", "Heart Disease"]
+LIME_FEATURE_COUNT = len(COLUMN_NAMES) - 1
+LIME_SAMPLE_COUNT = 1200
+LIME_CATEGORY_LABELS = {
+    "sex": {0: "Female", 1: "Male"},
+    "cp": {
+        1: "Typical Angina",
+        2: "Atypical Angina",
+        3: "Non-anginal Pain",
+        4: "Asymptomatic",
+    },
+    "fbs": {0: "No", 1: "Yes"},
+    "restecg": {
+        0: "Normal",
+        1: "ST-T Abnormality",
+        2: "Left Ventricular Hypertrophy",
+    },
+    "exang": {0: "No", 1: "Yes"},
+    "slope": {1: "Upsloping", 2: "Flat", 3: "Downsloping"},
+    "ca": {0: "0 Vessels", 1: "1 Vessel", 2: "2 Vessels", 3: "3 Vessels"},
+    "thal": {3: "Normal", 6: "Fixed Defect", 7: "Reversible Defect"},
+}
 
 FEATURE_TOOLTIPS = {
     "age": "Patient age in years.",
@@ -76,6 +99,7 @@ LOAD_ERROR = None
 TRAINING_LOCK = threading.Lock()
 TRAINING_THREAD = None
 ARTIFACT_LOCK = threading.Lock()
+LIME_LOCK = threading.Lock()
 DEFAULT_TRAINING_ESTIMATE_SECONDS = 300
 FAST_TRAINING_ESTIMATE_SECONDS = 120
 
@@ -107,6 +131,15 @@ NOISY_LOG_PATTERNS = [
     "triggered tf.function retracing",
 ]
 
+LIME_CACHE = {
+    "signature": None,
+    "explainer": None,
+    "reference_frame": None,
+    "medians": None,
+    "mins": None,
+    "maxs": None,
+}
+
 
 def _models_dir():
     return os.path.join(get_project_root(), "models")
@@ -118,6 +151,20 @@ def _metadata_path():
 
 def _scaler_path():
     return os.path.join(_models_dir(), "scaler.pkl")
+
+
+def _reset_lime_cache():
+    with LIME_LOCK:
+        LIME_CACHE.update(
+            {
+                "signature": None,
+                "explainer": None,
+                "reference_frame": None,
+                "medians": None,
+                "mins": None,
+                "maxs": None,
+            }
+        )
 
 
 def _utc_now_iso():
@@ -221,6 +268,246 @@ def _build_dataset_payload(dataset_name, page, page_size):
         "total_rows": total_rows,
         "total_pages": total_pages,
         "counts": _get_dataset_counts(),
+    }
+
+
+def _ensure_feature_frame(data):
+    if isinstance(data, pd.DataFrame):
+        frame = data.copy()
+    else:
+        frame = pd.DataFrame(data, columns=ARTIFACTS["all_features"])
+    return frame[ARTIFACTS["all_features"]]
+
+
+def _clip_probabilities(values):
+    return np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
+
+
+def _predict_base_probabilities(patient_frame):
+    scaled_features = ARTIFACTS["scaler"].transform(patient_frame)
+    selected_scaled = scaled_features[:, ARTIFACTS["selected_indices"]]
+
+    ann_probabilities = _clip_probabilities(
+        ARTIFACTS["ann_model"].predict(selected_scaled, verbose=0).reshape(-1)
+    )
+    rf_probabilities = _clip_probabilities(
+        ARTIFACTS["rf_model"].predict_proba(selected_scaled)[:, 1]
+    )
+    svm_probabilities = _clip_probabilities(
+        ARTIFACTS["svm_model"].predict_proba(selected_scaled)[:, 1]
+    )
+    fuzzy_probabilities = _clip_probabilities(
+        ARTIFACTS["fuzzy_model"].predict_proba(patient_frame)
+    )
+
+    return scaled_features, {
+        "ANN": ann_probabilities,
+        "Random Forest": rf_probabilities,
+        "SVM": svm_probabilities,
+        "Fuzzy Logic": fuzzy_probabilities,
+    }
+
+
+def _predict_stacked_probabilities(data):
+    patient_frame = _ensure_feature_frame(data)
+    scaled_features, base_probabilities = _predict_base_probabilities(patient_frame)
+    stacked_model_input = np.column_stack(
+        [
+            base_probabilities["ANN"],
+            base_probabilities["Random Forest"],
+            base_probabilities["SVM"],
+            base_probabilities["Fuzzy Logic"],
+        ]
+    )
+    final_probabilities = _clip_probabilities(
+        ARTIFACTS["meta_model"].predict_proba(stacked_model_input)[:, 1]
+    )
+    return {
+        "patient_frame": patient_frame,
+        "scaled_features": scaled_features,
+        "base_probabilities": base_probabilities,
+        "stacked_model_input": stacked_model_input,
+        "final_probabilities": final_probabilities,
+    }
+
+
+def _get_lime_signature():
+    cleaned_path = get_cleaned_dataset_path()
+    user_path = get_user_data_path()
+    return (
+        os.path.getmtime(cleaned_path) if os.path.exists(cleaned_path) else None,
+        os.path.getmtime(user_path) if os.path.exists(user_path) else None,
+        tuple(ARTIFACTS.get("all_features", [])),
+        tuple(ARTIFACTS.get("selected_indices", [])),
+    )
+
+
+def _build_lime_categorical_names(feature_names):
+    categorical_names = {}
+    for index, feature_name in enumerate(feature_names):
+        if feature_name not in CATEGORICAL_FEATURES:
+            continue
+
+        labels = LIME_CATEGORY_LABELS.get(feature_name, {})
+        if not labels:
+            continue
+
+        max_value = max(labels)
+        named_values = [str(value) for value in range(max_value + 1)]
+        for value, label in labels.items():
+            named_values[value] = label
+        categorical_names[index] = named_values
+    return categorical_names
+
+
+def _build_lime_reference_frame():
+    feature_names = ARTIFACTS["all_features"]
+    cleaned_frame = _load_dataset_by_name("cleaned")
+    user_frame = load_user_training_data()
+
+    frames = []
+    if not cleaned_frame.empty:
+        frames.append(cleaned_frame[feature_names])
+    if not user_frame.empty:
+        frames.append(user_frame[feature_names])
+
+    if not frames:
+        raise RuntimeError("Reference data is not available yet. Train the project before generating LIME explanations.")
+
+    reference_frame = pd.concat(frames, ignore_index=True).drop_duplicates().reset_index(drop=True)
+    if reference_frame.empty:
+        raise RuntimeError("Reference data is empty. Add training data and retrain before generating LIME explanations.")
+
+    reference_frame = reference_frame.apply(pd.to_numeric, errors="coerce")
+    for feature_name in feature_names:
+        if feature_name in CATEGORICAL_FEATURES:
+            mode_series = reference_frame[feature_name].mode(dropna=True)
+            fill_value = mode_series.iloc[0] if not mode_series.empty else 0
+            reference_frame[feature_name] = (
+                reference_frame[feature_name].fillna(fill_value).round().astype(int)
+            )
+        else:
+            fill_value = reference_frame[feature_name].median()
+            reference_frame[feature_name] = reference_frame[feature_name].fillna(fill_value).astype(float)
+
+    return reference_frame
+
+
+def _get_lime_explainer():
+    try:
+        from lime.lime_tabular import LimeTabularExplainer
+    except Exception as exc:
+        raise RuntimeError(
+            "LIME is not installed yet. Run `pip install -r requirements.txt` to enable local explanations."
+        ) from exc
+
+    signature = _get_lime_signature()
+    with LIME_LOCK:
+        if LIME_CACHE["signature"] == signature and LIME_CACHE["explainer"] is not None:
+            return LIME_CACHE
+
+        reference_frame = _build_lime_reference_frame()
+        feature_names = ARTIFACTS["all_features"]
+        categorical_indices = [
+            index for index, feature_name in enumerate(feature_names) if feature_name in CATEGORICAL_FEATURES
+        ]
+        explainer = LimeTabularExplainer(
+            training_data=reference_frame.to_numpy(dtype=float),
+            mode="classification",
+            feature_names=feature_names,
+            categorical_features=categorical_indices,
+            categorical_names=_build_lime_categorical_names(feature_names),
+            class_names=LIME_CLASS_NAMES,
+            discretize_continuous=True,
+            sample_around_instance=True,
+            random_state=42,
+        )
+
+        LIME_CACHE.update(
+            {
+                "signature": signature,
+                "explainer": explainer,
+                "reference_frame": reference_frame,
+                "medians": reference_frame.median(numeric_only=True),
+                "mins": reference_frame.min(numeric_only=True),
+                "maxs": reference_frame.max(numeric_only=True),
+            }
+        )
+        return LIME_CACHE
+
+
+def _normalize_lime_samples(samples, reference_frame, medians, mins, maxs):
+    sample_frame = pd.DataFrame(samples, columns=ARTIFACTS["all_features"])
+    sample_frame = sample_frame.apply(pd.to_numeric, errors="coerce")
+
+    for feature_name in ARTIFACTS["all_features"]:
+        fill_value = float(medians[feature_name])
+        min_value = float(mins[feature_name])
+        max_value = float(maxs[feature_name])
+        sample_frame[feature_name] = sample_frame[feature_name].fillna(fill_value)
+        sample_frame[feature_name] = sample_frame[feature_name].clip(lower=min_value, upper=max_value)
+
+        if feature_name in CATEGORICAL_FEATURES:
+            sample_frame[feature_name] = sample_frame[feature_name].round().astype(int)
+
+    return sample_frame
+
+
+def _lime_predict_proba(samples):
+    lime_state = _get_lime_explainer()
+    sample_frame = _normalize_lime_samples(
+        samples,
+        lime_state["reference_frame"],
+        lime_state["medians"],
+        lime_state["mins"],
+        lime_state["maxs"],
+    )
+    final_probabilities = _predict_stacked_probabilities(sample_frame)["final_probabilities"]
+    return np.column_stack([1 - final_probabilities, final_probabilities])
+
+
+def _build_lime_explanation(patient_record):
+    lime_state = _get_lime_explainer()
+    instance_frame = pd.DataFrame([patient_record], columns=ARTIFACTS["all_features"])
+    instance_frame = _normalize_lime_samples(
+        instance_frame.to_numpy(dtype=float),
+        lime_state["reference_frame"],
+        lime_state["medians"],
+        lime_state["mins"],
+        lime_state["maxs"],
+    )
+    instance = instance_frame.iloc[0].to_numpy(dtype=float)
+
+    explanation = lime_state["explainer"].explain_instance(
+        instance,
+        _lime_predict_proba,
+        labels=(1,),
+        num_features=LIME_FEATURE_COUNT,
+        num_samples=LIME_SAMPLE_COUNT,
+    )
+    explanation_items = []
+    for label, weight in explanation.as_list(label=1):
+        explanation_items.append(
+            {
+                "label": label,
+                "weight": round(float(weight), 4),
+                "direction": "increase" if weight > 0 else "decrease" if weight < 0 else "neutral",
+            }
+        )
+
+    probability = float(_lime_predict_proba([instance])[0][1])
+    fidelity = getattr(explanation, "score", None)
+    local_prediction = None
+    local_pred_values = getattr(explanation, "local_pred", None)
+    if local_pred_values is not None and len(local_pred_values) > 0:
+        local_prediction = round(float(local_pred_values[0]), 4)
+
+    return {
+        "probability": round(probability, 4),
+        "class_name": LIME_CLASS_NAMES[1],
+        "fidelity_score": round(float(fidelity), 4) if fidelity is not None else None,
+        "local_prediction": local_prediction,
+        "items": explanation_items,
     }
 
 
@@ -612,9 +899,11 @@ def load_artifacts():
             "svm_model": joblib.load(get_svm_model_path()),
             "meta_model": joblib.load(get_meta_model_path()),
         }
+        _reset_lime_cache()
         LOAD_ERROR = None
     except Exception as exc:
         ARTIFACTS = {}
+        _reset_lime_cache()
         LOAD_ERROR = (
             "Model artifacts are not ready yet. Run `python train.py` before starting predictions. "
             f"Details: {exc}"
@@ -642,23 +931,12 @@ def predict():
     try:
         payload = request.get_json(silent=True) or {}
         patient_record, imputed_fields = _prepare_patient_payload(payload)
-
-        patient_frame = pd.DataFrame([patient_record], columns=ARTIFACTS["all_features"])
-        patient_scaled = ARTIFACTS["scaler"].transform(patient_frame)[0]
-        selected_scaled = np.array([patient_scaled[ARTIFACTS["selected_indices"]]])
-
-        ann_probability = _safe_probability(
-            ARTIFACTS["ann_model"].predict(selected_scaled, verbose=0)[0][0]
-        )
-        rf_probability = _safe_probability(
-            ARTIFACTS["rf_model"].predict_proba(selected_scaled)[0][1]
-        )
-        svm_probability = _safe_probability(
-            ARTIFACTS["svm_model"].predict_proba(selected_scaled)[0][1]
-        )
-        fuzzy_probability = _safe_probability(
-            ARTIFACTS["fuzzy_model"].predict_one(patient_record)
-        )
+        prediction_outputs = _predict_stacked_probabilities([patient_record])
+        patient_scaled = prediction_outputs["scaled_features"][0]
+        ann_probability = _safe_probability(prediction_outputs["base_probabilities"]["ANN"][0])
+        rf_probability = _safe_probability(prediction_outputs["base_probabilities"]["Random Forest"][0])
+        svm_probability = _safe_probability(prediction_outputs["base_probabilities"]["SVM"][0])
+        fuzzy_probability = _safe_probability(prediction_outputs["base_probabilities"]["Fuzzy Logic"][0])
 
         model_predictions = {
             "ANN": round(ann_probability, 4),
@@ -666,11 +944,7 @@ def predict():
             "Fuzzy Logic": round(fuzzy_probability, 4),
             "SVM": round(svm_probability, 4),
         }
-        stacked_model_input = np.array([[ann_probability, rf_probability, svm_probability, fuzzy_probability]])
-        final_probability = round(
-            _safe_probability(ARTIFACTS["meta_model"].predict_proba(stacked_model_input)[0][1]),
-            4,
-        )
+        final_probability = round(_safe_probability(prediction_outputs["final_probabilities"][0]), 4)
         risk_level = _risk_level(final_probability)
 
         healthy_frame = pd.DataFrame(
@@ -708,6 +982,33 @@ def predict():
                 "error": (
                     "We could not generate a prediction right now. "
                     f"Please verify your inputs and try again. Details: {exc}"
+                )
+            }
+        ), 500
+
+
+@app.route("/api/explain/lime", methods=["POST"])
+def explain_lime():
+    ensure_artifacts_loaded()
+    if LOAD_ERROR is not None:
+        return jsonify({"error": LOAD_ERROR}), 503
+
+    try:
+        payload = request.get_json(silent=True) or {}
+        patient_record, imputed_fields = _prepare_patient_payload(payload)
+        explanation_payload = _build_lime_explanation(patient_record)
+        explanation_payload["imputed_fields"] = imputed_fields
+        return jsonify(explanation_payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception as exc:
+        return jsonify(
+            {
+                "error": (
+                    "We could not generate the LIME explanation right now. "
+                    f"Please try again. Details: {exc}"
                 )
             }
         ), 500

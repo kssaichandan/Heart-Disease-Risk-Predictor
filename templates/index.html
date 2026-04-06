@@ -249,9 +249,30 @@
               <canvas id="radarChart"></canvas>
             </article>
             <article class="chart-card">
-              <h3>Explainable AI - Factored Impact</h3>
-              <p style="font-size: 0.85rem; color: #a2c1cd; margin-bottom: 10px;">Powered by SHAP. Explains exactly how much each feature increased or decreased your final risk prediction against the core dataset.</p>
+              <h3>Random Forest SHAP Impact</h3>
+              <p style="font-size: 0.85rem; color: #a2c1cd; margin-bottom: 10px;">Powered by SHAP. Shows how the Random Forest branch reacts to the current patient inputs after feature selection.</p>
               <canvas id="importanceChart"></canvas>
+            </article>
+            <article class="chart-card full-width">
+              <div class="lime-header">
+                <div>
+                  <h3>Stacked Ensemble LIME Explanation</h3>
+                  <p class="lime-copy">
+                    Generate an on-demand local explanation for the final stacked prediction.
+                    This runs separately so normal predictions stay fast.
+                  </p>
+                </div>
+                <button type="button" class="secondary-button" id="generate-lime-button" disabled>
+                  Generate LIME Explanation
+                </button>
+              </div>
+              <p id="lime-status-message" class="status-message lime-status">
+                Run a prediction first to generate a LIME explanation.
+              </p>
+              <div id="lime-empty-state" class="lime-empty-state">
+                Top factors pushing the final stacked risk higher or lower will appear here.
+              </div>
+              <div id="lime-explanation-list" class="lime-explanation-list hidden"></div>
             </article>
           </div>
         </section>

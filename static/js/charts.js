@@ -14,12 +14,6 @@ const featureLabels = {
   thal: "Thalassemia",
 };
 
-const thalMapping = {
-  1: 3,
-  2: 6,
-  3: 7,
-};
-
 const chartInstances = {};
 const datasetState = {
   name: "augmented",
@@ -28,6 +22,7 @@ const datasetState = {
   pollHandle: null,
   timerHandle: null,
   latestTrainingStatus: null,
+  latestPredictionPayload: null,
 };
 
 Chart.defaults.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 2);
@@ -50,6 +45,13 @@ function setText(id, value) {
   if (element) {
     element.textContent = value;
   }
+}
+
+function toggleHidden(element, isHidden) {
+  if (!element) {
+    return;
+  }
+  element.classList.toggle("hidden", isHidden);
 }
 
 function formatDuration(seconds) {
@@ -124,6 +126,99 @@ async function requestJson(url, options = {}) {
     throw new Error(payload.error || "Request failed.");
   }
   return payload;
+}
+
+function resetLimeExplanation(options = {}) {
+  const {
+    statusText = "Run a prediction first to generate a LIME explanation.",
+    emptyText = "Top factors pushing the final stacked risk higher or lower will appear here.",
+    buttonDisabled = true,
+  } = options;
+
+  const explanationList = document.getElementById("lime-explanation-list");
+  const emptyState = document.getElementById("lime-empty-state");
+  const generateButton = document.getElementById("generate-lime-button");
+
+  if (explanationList) {
+    explanationList.innerHTML = "";
+    toggleHidden(explanationList, true);
+  }
+  if (emptyState) {
+    emptyState.textContent = emptyText;
+    toggleHidden(emptyState, false);
+  }
+  if (generateButton) {
+    generateButton.disabled = buttonDisabled;
+  }
+  setText("lime-status-message", statusText);
+}
+
+function renderLimeExplanation(explanationPayload) {
+  const explanationList = document.getElementById("lime-explanation-list");
+  const emptyState = document.getElementById("lime-empty-state");
+  if (!explanationList || !emptyState) {
+    return;
+  }
+
+  explanationList.innerHTML = "";
+  const items = Array.isArray(explanationPayload.items) ? explanationPayload.items : [];
+  const maxAbsWeight = items.reduce((maximum, item) => {
+    return Math.max(maximum, Math.abs(Number(item.weight || 0)));
+  }, 0) || 1;
+
+  items.forEach((item) => {
+    const weight = Number(item.weight || 0);
+    const direction =
+      item.direction === "increase" ? "increase" : item.direction === "decrease" ? "decrease" : "neutral";
+    const card = document.createElement("article");
+    card.className = "lime-item";
+
+    const header = document.createElement("div");
+    header.className = "lime-item-header";
+
+    const label = document.createElement("strong");
+    label.textContent = item.label;
+
+    const badge = document.createElement("span");
+    badge.className = `lime-pill lime-${direction}`;
+    badge.textContent =
+      direction === "increase" ? "Raises risk" : direction === "decrease" ? "Lowers risk" : "Neutral";
+
+    header.appendChild(label);
+    header.appendChild(badge);
+
+    const meta = document.createElement("p");
+    meta.className = "lime-item-meta";
+    meta.textContent = `Local weight ${weight > 0 ? "+" : ""}${weight.toFixed(4)}`;
+
+    const track = document.createElement("div");
+    track.className = "lime-bar-track";
+
+    const bar = document.createElement("div");
+    bar.className = `lime-bar lime-${direction}`;
+    bar.style.width = `${Math.max(8, Math.round((Math.abs(weight) / maxAbsWeight) * 100))}%`;
+
+    track.appendChild(bar);
+    card.appendChild(header);
+    card.appendChild(meta);
+    card.appendChild(track);
+    explanationList.appendChild(card);
+  });
+
+  toggleHidden(emptyState, true);
+  toggleHidden(explanationList, false);
+
+  const notes = [
+    `LIME generated for the final stacked prediction at ${Math.round(Number(explanationPayload.probability || 0) * 100)}% risk.`,
+  ];
+  if (explanationPayload.fidelity_score !== null && explanationPayload.fidelity_score !== undefined) {
+    notes.push(`Local fidelity ${Number(explanationPayload.fidelity_score).toFixed(4)}.`);
+  }
+  if (Array.isArray(explanationPayload.imputed_fields) && explanationPayload.imputed_fields.length) {
+    const readableFields = explanationPayload.imputed_fields.map((field) => featureLabels[field] || field);
+    notes.push(`Auto-filled during explanation: ${readableFields.join(", ")}.`);
+  }
+  setText("lime-status-message", notes.join(" "));
 }
 
 function createGaugeChart(probability, riskLevel) {
@@ -376,10 +471,6 @@ function buildPayload(formElement, options = {}) {
     }
     payload[key] = Number(value);
   });
-
-  if (payload.thal !== null && payload.thal !== undefined) {
-    payload.thal = thalMapping[payload.thal] || payload.thal;
-  }
   return payload;
 }
 
@@ -514,27 +605,40 @@ document.addEventListener("DOMContentLoaded", () => {
   const retrainButton = document.getElementById("retrain-button");
   const clearTrainingDataButton = document.getElementById("clear-training-data-button");
   const trainingTarget = document.getElementById("training-target");
+  const generateLimeButton = document.getElementById("generate-lime-button");
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     statusMessage.textContent = "Analyzing patient profile...";
     submitButton.disabled = true;
+    datasetState.latestPredictionPayload = null;
+    resetLimeExplanation({
+      statusText: "Waiting for a completed prediction before generating a LIME explanation.",
+      buttonDisabled: true,
+    });
 
     try {
+      const predictionPayload = buildPayload(form, { allowMissing: true });
       const response = await requestJson("/predict", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(buildPayload(form, { allowMissing: true })),
+        body: JSON.stringify(predictionPayload),
       });
 
+      datasetState.latestPredictionPayload = predictionPayload;
       updateSummary(response.probability, response.risk_level, response.advice);
       createGaugeChart(response.probability, response.risk_level);
       createBarChart(response.model_predictions);
       createRadarChart(response.profile_comparison);
       createImportanceChart(response.feature_importance);
       resultsPanel.classList.remove("hidden");
+      resetLimeExplanation({
+        statusText: "Prediction complete. Generate a LIME explanation for the final stacked result when you are ready.",
+        emptyText: "Generate a LIME explanation to see which local factors pushed the final stacked risk higher or lower.",
+        buttonDisabled: false,
+      });
       if (response.imputed_fields && response.imputed_fields.length) {
         const readableFields = response.imputed_fields.map((field) => featureLabels[field] || field);
         statusMessage.textContent = `Prediction complete. Auto-filled: ${readableFields.join(", ")}.`;
@@ -564,8 +668,43 @@ document.addEventListener("DOMContentLoaded", () => {
 
   clearButton.addEventListener("click", () => {
     form.reset();
+    datasetState.latestPredictionPayload = null;
+    resetLimeExplanation();
     statusMessage.textContent = "Form cleared.";
   });
+
+  if (generateLimeButton) {
+    generateLimeButton.addEventListener("click", async () => {
+      if (!datasetState.latestPredictionPayload) {
+        resetLimeExplanation();
+        return;
+      }
+
+      generateLimeButton.disabled = true;
+      setText("lime-status-message", "Generating LIME explanation for the final stacked prediction...");
+
+      try {
+        const response = await requestJson("/api/explain/lime", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(datasetState.latestPredictionPayload),
+        });
+        renderLimeExplanation(response);
+      } catch (error) {
+        resetLimeExplanation({
+          statusText: error.message,
+          emptyText: "Try again after a successful prediction. Normal prediction results are still available above.",
+          buttonDisabled: false,
+        });
+      } finally {
+        if (datasetState.latestPredictionPayload) {
+          generateLimeButton.disabled = false;
+        }
+      }
+    });
+  }
 
   saveTrainingRowButton.addEventListener("click", async () => {
     saveTrainingRowButton.disabled = true;
@@ -697,6 +836,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  resetLimeExplanation();
   loadDataset(1).catch((error) => setText("retrain-status-message", error.message));
   loadRetrainStatus().catch(() => {});
 });

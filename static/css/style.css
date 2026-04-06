@@ -460,6 +460,103 @@ body::before {
   font-size: 1rem;
 }
 
+.lime-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.lime-copy {
+  margin: -4px 0 0;
+  max-width: 760px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.lime-status {
+  margin-top: 14px;
+}
+
+.lime-empty-state {
+  margin-top: 12px;
+  padding: 18px;
+  border: 1px dashed rgba(122, 220, 207, 0.18);
+  border-radius: 16px;
+  color: var(--text-soft);
+  background: rgba(4, 16, 26, 0.45);
+  line-height: 1.6;
+}
+
+.lime-explanation-list {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.lime-item {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(122, 220, 207, 0.14);
+  background: rgba(4, 16, 26, 0.72);
+}
+
+.lime-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lime-item-header strong {
+  font-size: 0.96rem;
+  line-height: 1.5;
+}
+
+.lime-item-meta {
+  margin: 10px 0 12px;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
+.lime-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.lime-increase {
+  color: #ffc7c1;
+  background: rgba(255, 111, 97, 0.16);
+}
+
+.lime-decrease {
+  color: #9cf3c0;
+  background: rgba(79, 213, 138, 0.16);
+}
+
+.lime-neutral {
+  color: #dcebf0;
+  background: rgba(162, 193, 205, 0.14);
+}
+
+.lime-bar-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(162, 193, 205, 0.12);
+}
+
+.lime-bar {
+  height: 100%;
+  border-radius: 999px;
+}
+
 .chart-card canvas {
   display: block;
   width: 100% !important;
@@ -570,6 +667,7 @@ body::before {
 @media (max-width: 1024px) {
   .hero-highlights,
   .chart-grid,
+  .lime-explanation-list,
   .form-grid,
   .training-grid,
   .status-card {

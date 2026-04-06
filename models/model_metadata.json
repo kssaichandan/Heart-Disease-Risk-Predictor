@@ -58,8 +58,8 @@
   "training_summary": {
     "raw_rows": 303,
     "cleaned_rows": 303,
-    "user_rows_used": 2,
-    "training_input_total": 305,
+    "user_rows_used": 10,
+    "training_input_total": 313,
     "augmented_rows": 1100
   },
   "training_mode": "fast"
