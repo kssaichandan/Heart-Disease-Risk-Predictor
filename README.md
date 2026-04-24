@@ -299,3 +299,5 @@ MIT
 - Fixed Data Explorer `Last Trained Input` count bug
 - Updated model checkpoints containing recent inputs (ANN, SVM, RF, Meta)
 - Refreshed the saved accuracy, confusion matrix, ROC, and training history artifacts
+
+  ## Contact info: kssaichandan@gmail.com
