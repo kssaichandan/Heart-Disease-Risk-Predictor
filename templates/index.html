@@ -77,10 +77,10 @@
               <span>Chest Pain Type <button type="button" class="hint" title="{{ feature_tooltips['cp'] }}">i</button></span>
               <select name="cp">
                 <option value="">Select</option>
-                <option value="0">0 - Typical Angina</option>
-                <option value="1">1 - Atypical Angina</option>
-                <option value="2">2 - Non-anginal Pain</option>
-                <option value="3">3 - Asymptomatic</option>
+                <option value="1">1 - Typical Angina</option>
+                <option value="2">2 - Atypical Angina</option>
+                <option value="3">3 - Non-anginal Pain</option>
+                <option value="4">4 - Asymptomatic</option>
               </select>
             </label>
 
@@ -136,9 +136,9 @@
               <span>Slope of ST Segment <button type="button" class="hint" title="{{ feature_tooltips['slope'] }}">i</button></span>
               <select name="slope">
                 <option value="">Select</option>
-                <option value="0">0 - Upsloping</option>
-                <option value="1">1 - Flat</option>
-                <option value="2">2 - Downsloping</option>
+                <option value="1">1 - Upsloping</option>
+                <option value="2">2 - Flat</option>
+                <option value="3">3 - Downsloping</option>
               </select>
             </label>
 
@@ -151,9 +151,9 @@
               <span>Thalassemia <button type="button" class="hint" title="{{ feature_tooltips['thal'] }}">i</button></span>
               <select name="thal">
                 <option value="">Select</option>
-                <option value="1">1 - Normal</option>
-                <option value="2">2 - Fixed Defect</option>
-                <option value="3">3 - Reversible Defect</option>
+                <option value="3">3 - Normal</option>
+                <option value="6">6 - Fixed Defect</option>
+                <option value="7">7 - Reversible Defect</option>
               </select>
             </label>
           </div>
@@ -324,7 +324,9 @@
             <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.85rem; color: #a2c1cd;">
               <div class="legend-item"><strong style="color: #dcebf0;">Sex:</strong> 1 = Male, 0 = Female</div>
               <div class="legend-item"><strong style="color: #dcebf0;">Target:</strong> 1 = Disease Present (<span style="color: #ff6b6b;">Red</span>), 0 = Healthy (<span style="color: #7ce7d6;">Green</span>)</div>
-              <div class="legend-item"><strong style="color: #dcebf0;">CP (Chest Pain):</strong> 0 = Typical Angina, 1 = Atypical, 2 = Non-anginal, 3 = Asymptomatic</div>
+              <div class="legend-item"><strong style="color: #dcebf0;">CP (Chest Pain):</strong> 1 = Typical Angina, 2 = Atypical, 3 = Non-anginal, 4 = Asymptomatic</div>
+              <div class="legend-item"><strong style="color: #dcebf0;">Slope:</strong> 1 = Upsloping, 2 = Flat, 3 = Downsloping</div>
+              <div class="legend-item"><strong style="color: #dcebf0;">Thal:</strong> 3 = Normal, 6 = Fixed Defect, 7 = Reversible Defect</div>
               <div class="legend-item"><strong style="color: #dcebf0;">Fasting Blood Sugar:</strong> 1 = True (> 120 mg/dl), 0 = False</div>
               <div class="legend-item"><strong style="color: #dcebf0;">ExAng (Exercise Angina):</strong> 1 = Yes, 0 = No</div>
             </div>

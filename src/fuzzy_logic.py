@@ -45,6 +45,12 @@ class FuzzyRiskModel:
             (("age", "middle"), ("chol", "medium"), ("thalach", "medium"), "medium"),
             (("age", "old"), ("chol", "medium"), ("thalach", "medium"), "medium"),
             (("age", "young"), ("chol", "high"), ("thalach", "medium"), "medium"),
+            (("chol", "high"), ("thalach", "low"), None, "high"),
+            (("age", "old"), ("chol", "low"), ("thalach", "high"), "medium"),
+            (("age", "middle"), ("chol", "low"), ("thalach", "high"), "low"),
+            (("age", "young"), ("chol", "high"), ("thalach", "low"), "medium"),
+            (("age", "middle"), ("chol", "high"), ("thalach", "medium"), "high"),
+            (("age", "old"), ("chol", "high"), ("thalach", "medium"), "high"),
         ]
 
     def _membership(self, universe, membership_map, label, value):
@@ -84,7 +90,15 @@ class FuzzyRiskModel:
             )
 
         if np.allclose(aggregated, 0):
-            return 0.5
+            clipped_age = max(0.0, min(120.0, age_value))
+            clipped_chol = max(0.0, min(700.0, chol_value))
+            clipped_thalach = max(0.0, min(260.0, thalach_value))
+            fallback = (
+                0.4 * (clipped_age / 100.0)
+                + 0.4 * (clipped_chol / 300.0)
+                + 0.2 * ((220.0 - clipped_thalach) / 100.0)
+            )
+            return float(max(0.0, min(1.0, fallback)))
 
         score = float(fuzz.defuzz(self.risk_universe, aggregated, "centroid"))
         return max(0.0, min(1.0, score))

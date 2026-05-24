@@ -29,7 +29,19 @@ def load_user_training_data():
     return dataframe[COLUMN_NAMES]
 
 
+USER_ROW_LIMIT = 500
+
+
+def get_user_row_count():
+    return len(load_user_training_data())
+
+
 def append_user_training_row(row):
+    if get_user_row_count() >= USER_ROW_LIMIT:
+        raise ValueError(
+            f"User training data cap reached ({USER_ROW_LIMIT} rows). Remove rows before adding more."
+        )
+
     path = get_user_data_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
@@ -37,10 +49,6 @@ def append_user_training_row(row):
     write_header = not os.path.exists(path)
     dataframe.to_csv(path, mode="a", header=write_header, index=False)
     return path
-
-
-def get_user_row_count():
-    return len(load_user_training_data())
 
 
 def preprocess_user_training_row(row):

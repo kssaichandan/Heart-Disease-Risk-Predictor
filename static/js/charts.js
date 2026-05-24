@@ -15,6 +15,7 @@ const featureLabels = {
 };
 
 const chartInstances = {};
+let trainingStatusInterval = null;
 const datasetState = {
   name: "augmented",
   page: 1,
@@ -223,7 +224,9 @@ function renderLimeExplanation(explanationPayload) {
 
 function createGaugeChart(probability, riskLevel) {
   destroyChart("gauge");
-  const ctx = document.getElementById("gaugeChart");
+  const canvas = document.getElementById("gaugeChart");
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (!canvas || !ctx) return null;
   const percentage = Math.round(probability * 100);
 
   chartInstances.gauge = new Chart(ctx, {
@@ -273,7 +276,9 @@ function createGaugeChart(probability, riskLevel) {
 
 function createBarChart(modelPredictions) {
   destroyChart("bar");
-  const ctx = document.getElementById("barChart");
+  const canvas = document.getElementById("barChart");
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (!canvas || !ctx) return null;
   const labels = Object.keys(modelPredictions);
   const values = Object.values(modelPredictions).map((value) => Number((value * 100).toFixed(2)));
 
@@ -328,7 +333,10 @@ function createBarChart(modelPredictions) {
 
 function createRadarChart(profileComparison) {
   destroyChart("radar");
-  const ctx = document.getElementById("radarChart");
+  const canvas = document.getElementById("radarChart");
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (!canvas || !ctx) return null;
+  if (!profileComparison || !profileComparison.patient) return null;
   const labels = Object.keys(profileComparison.patient).map((key) => featureLabels[key] || key);
   const patientValues = Object.values(profileComparison.patient).map((value) => Math.round(value * 100));
   const healthyValues = Object.values(profileComparison.healthy).map((value) => Math.round(value * 100));
@@ -384,7 +392,9 @@ function createRadarChart(profileComparison) {
 
 function createImportanceChart(featureImportance) {
   destroyChart("importance");
-  const ctx = document.getElementById("importanceChart");
+  const canvas = document.getElementById("importanceChart");
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (!canvas || !ctx) return null;
 
   const sortedEntries = Object.entries(featureImportance)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
@@ -434,8 +444,7 @@ function createImportanceChart(featureImportance) {
       },
       scales: {
         x: {
-          grid: { color: "rgba(162, 193, 205, 0.12)", drawBorder: true },
-          grid: { display: false },
+          grid: { color: "rgba(162, 193, 205, 0.12)", drawBorder: true, display: false },
           ticks: { color: "#eef7fb" },
         },
       },
@@ -559,14 +568,18 @@ function renderTrainingStatus(status) {
   }
 
   if (status.state === "running" || status.state === "queued") {
-    if (!datasetState.pollHandle) {
-      datasetState.pollHandle = window.setInterval(loadRetrainStatus, 5000);
+    if (trainingStatusInterval !== null) {
+      clearInterval(trainingStatusInterval);
+      trainingStatusInterval = null;
     }
+    trainingStatusInterval = setInterval(loadRetrainStatus, 5000);
+    datasetState.pollHandle = trainingStatusInterval;
     if (!datasetState.timerHandle) {
       datasetState.timerHandle = window.setInterval(updateTrainingTimer, 1000);
     }
-  } else if (datasetState.pollHandle) {
-    window.clearInterval(datasetState.pollHandle);
+  } else if (trainingStatusInterval !== null) {
+    clearInterval(trainingStatusInterval);
+    trainingStatusInterval = null;
     datasetState.pollHandle = null;
     if (datasetState.timerHandle) {
       window.clearInterval(datasetState.timerHandle);
@@ -839,4 +852,20 @@ document.addEventListener("DOMContentLoaded", () => {
   resetLimeExplanation();
   loadDataset(1).catch((error) => setText("retrain-status-message", error.message));
   loadRetrainStatus().catch(() => {});
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (trainingStatusInterval !== null) {
+      clearInterval(trainingStatusInterval);
+      trainingStatusInterval = null;
+      datasetState.pollHandle = null;
+    }
+  } else {
+    if (trainingStatusInterval === null) {
+      loadRetrainStatus().catch(() => {});
+      trainingStatusInterval = setInterval(loadRetrainStatus, 5000);
+      datasetState.pollHandle = trainingStatusInterval;
+    }
+  }
 });

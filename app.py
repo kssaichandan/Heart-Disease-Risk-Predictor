@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import subprocess
 import sys
@@ -40,13 +41,24 @@ RISK_WEIGHTS = {
     "SVM": 0.25,
     "Fuzzy Logic": 0.10,
 }
-THAL_FORWARD_MAP = {1.0: 3.0, 2.0: 6.0, 3.0: 7.0}
-THAL_REVERSE_MAP = {3.0: 1, 6.0: 2, 7.0: 3}
-CP_FORWARD_MAP = {0.0: 1.0, 1.0: 2.0, 2.0: 3.0, 3.0: 4.0}
-CP_REVERSE_MAP = {1.0: 0, 2.0: 1, 3.0: 2, 4.0: 3}
-SLOPE_FORWARD_MAP = {0.0: 1.0, 1.0: 2.0, 2.0: 3.0}
-SLOPE_REVERSE_MAP = {1.0: 0, 2.0: 1, 3.0: 2}
 DATASET_PAGE_SIZE = 20
+NUMERIC_BOUNDS = {
+    "age": (1, 120),
+    "trestbps": (50, 300),
+    "chol": (50, 700),
+    "thalach": (50, 260),
+    "oldpeak": (-2, 10),
+}
+CATEGORICAL_DOMAINS = {
+    "sex": {0, 1},
+    "cp": {1, 2, 3, 4},
+    "fbs": {0, 1},
+    "restecg": {0, 1, 2},
+    "exang": {0, 1},
+    "slope": {1, 2, 3},
+    "ca": {0, 1, 2, 3},
+    "thal": {3, 6, 7},
+}
 CATEGORICAL_FEATURES = {"sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal"}
 LIME_CLASS_NAMES = ["No Heart Disease", "Heart Disease"]
 LIME_FEATURE_COUNT = len(COLUMN_NAMES) - 1
@@ -126,6 +138,8 @@ NOISY_LOG_PATTERNS = [
     "This file format is considered legacy",
     "FutureWarning:",
     "Passing `palette` without assigning `hue` is deprecated",
+    os.path.join("src", "evaluate.py"),
+    "src/evaluate.py",
     "src\\evaluate.py",
     "tf.reset_default_graph is deprecated",
     "triggered tf.function retracing",
@@ -209,7 +223,8 @@ def _load_dataset_by_name(dataset_name):
 
 
 def _get_dataset_counts():
-    training_summary = ARTIFACTS.get("training_summary", {})
+    with ARTIFACT_LOCK:
+        training_summary = dict(ARTIFACTS.get("training_summary", {})) if ARTIFACTS else {}
     
     cleaned_df = _load_dataset_by_name("cleaned")
     cleaned_rows = len(cleaned_df)
@@ -245,6 +260,7 @@ def _get_dataset_counts():
         "training_input_positive": input_pos,
         "training_input_negative": input_neg,
         "trained_input_total": training_summary.get("training_input_total", 0),
+        "trained_user_rows": training_summary.get("user_rows_used", 0),
     }
 
 
@@ -334,11 +350,30 @@ def _predict_stacked_probabilities(data):
 def _get_lime_signature():
     cleaned_path = get_cleaned_dataset_path()
     user_path = get_user_data_path()
+
+    def _safe_mtime(path):
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return None
+
+    model_paths = [
+        _scaler_path(),
+        get_ann_model_path(),
+        get_rf_model_path(),
+        get_svm_model_path(),
+        get_fuzzy_model_path(),
+        get_meta_model_path(),
+        _metadata_path(),
+    ]
+    model_mtimes = tuple(_safe_mtime(path) for path in model_paths)
+
     return (
-        os.path.getmtime(cleaned_path) if os.path.exists(cleaned_path) else None,
-        os.path.getmtime(user_path) if os.path.exists(user_path) else None,
+        _safe_mtime(cleaned_path),
+        _safe_mtime(user_path),
         tuple(ARTIFACTS.get("all_features", [])),
         tuple(ARTIFACTS.get("selected_indices", [])),
+        model_mtimes,
     )
 
 
@@ -553,6 +588,23 @@ def _safe_probability(value):
     return max(0.0, min(1.0, float(value)))
 
 
+def _validate_patient_record(patient_record):
+    for feature_name, allowed_values in CATEGORICAL_DOMAINS.items():
+        value = patient_record.get(feature_name)
+        if value is None:
+            continue
+        if int(round(float(value))) not in allowed_values:
+            raise ValueError(f"Invalid value for {feature_name}")
+
+    for feature_name, (low, high) in NUMERIC_BOUNDS.items():
+        value = patient_record.get(feature_name)
+        if value is None:
+            continue
+        numeric_value = float(value)
+        if numeric_value < low or numeric_value > high:
+            raise ValueError(f"Invalid value for {feature_name}")
+
+
 def _prepare_patient_payload(payload):
     patient_record = {}
     for feature_name in COLUMN_NAMES[:-1]:
@@ -565,17 +617,10 @@ def _prepare_patient_payload(payload):
         if np.isnan(numeric_value):
             patient_record[feature_name] = None
             continue
+        if not math.isfinite(numeric_value):
+            raise ValueError(f"{feature_name} must be a finite number")
 
         patient_record[feature_name] = numeric_value
-
-    if patient_record["cp"] in CP_FORWARD_MAP:
-        patient_record["cp"] = CP_FORWARD_MAP[patient_record["cp"]]
-
-    if patient_record["slope"] in SLOPE_FORWARD_MAP:
-        patient_record["slope"] = SLOPE_FORWARD_MAP[patient_record["slope"]]
-
-    if patient_record["thal"] in THAL_FORWARD_MAP:
-        patient_record["thal"] = THAL_FORWARD_MAP[patient_record["thal"]]
 
     cleaned_dataframe = _load_dataset_by_name("cleaned")
     imputed_fields = []
@@ -595,6 +640,8 @@ def _prepare_patient_payload(payload):
         patient_record[feature_name] = float(fill_value)
         imputed_fields.append(feature_name)
 
+    _validate_patient_record(patient_record)
+
     return patient_record, imputed_fields
 
 
@@ -610,24 +657,20 @@ def _prepare_training_row(payload):
         if np.isnan(numeric_value):
             patient_record[feature_name] = None
             continue
+        if not math.isfinite(numeric_value):
+            raise ValueError(f"{feature_name} must be a finite number")
 
         patient_record[feature_name] = numeric_value
-
-    if patient_record["cp"] in CP_FORWARD_MAP:
-        patient_record["cp"] = CP_FORWARD_MAP[patient_record["cp"]]
-
-    if patient_record["slope"] in SLOPE_FORWARD_MAP:
-        patient_record["slope"] = SLOPE_FORWARD_MAP[patient_record["slope"]]
-
-    if patient_record["thal"] in THAL_FORWARD_MAP:
-        patient_record["thal"] = THAL_FORWARD_MAP[patient_record["thal"]]
 
     if "target" not in payload:
         raise ValueError("Missing field: target")
 
-    target = int(float(payload["target"]))
-    if target not in {0, 1}:
-        raise ValueError("Target must be 0 or 1")
+    target_value = float(payload["target"])
+    if not math.isfinite(target_value) or target_value not in (0.0, 1.0):
+        raise ValueError("target must be 0 or 1")
+    target = int(target_value)
+
+    _validate_patient_record(patient_record)
 
     patient_record["target"] = target
     return preprocess_user_training_row(patient_record)
@@ -637,12 +680,6 @@ def _prepare_form_sample(record):
     sample = {}
     for feature_name in COLUMN_NAMES[:-1]:
         value = float(record[feature_name])
-        if feature_name == "cp":
-            value = float(CP_REVERSE_MAP.get(value, value))
-        elif feature_name == "slope":
-            value = float(SLOPE_REVERSE_MAP.get(value, value))
-        elif feature_name == "thal":
-            value = float(THAL_REVERSE_MAP.get(value, value))
 
         if feature_name in CATEGORICAL_FEATURES:
             sample[feature_name] = int(round(value))
@@ -807,9 +844,33 @@ def _run_training_job(mode):
                         status_update["message"] = user_message
                     _set_training_status(**status_update)
 
-        return_code = process.wait()
+        try:
+            return_code = process.wait(timeout=900)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            _set_training_status(
+                state="failed",
+                message="Retraining timed out after 15 minutes and was terminated.",
+                mode=mode,
+                finished_at=_utc_now_iso(),
+                logs=logs[-80:] + ["Retraining timed out after 15 minutes."],
+            )
+            return
         if return_code == 0:
             ensure_artifacts_loaded(force_reload=True)
+            if LOAD_ERROR is not None or not ARTIFACTS:
+                _set_training_status(
+                    state="failed",
+                    message=LOAD_ERROR or "artifact reload failed",
+                    mode=mode,
+                    finished_at=_utc_now_iso(),
+                    logs=logs[-80:],
+                )
+                return
             started_at = datetime.fromisoformat(TRAINING_STATUS["started_at"])
             duration_seconds = max(
                 1,
@@ -833,41 +894,43 @@ def _run_training_job(mode):
                 logs=logs[-80:],
             )
     except Exception as exc:
+        app.logger.exception("Retraining crashed")
+        print(f"Retraining crashed: {exc}", file=sys.stderr)
         _set_training_status(
             state="failed",
-            message=f"Retraining crashed: {exc}",
+            message="Retraining crashed. Check the latest log lines below.",
             mode=mode,
             finished_at=_utc_now_iso(),
-            logs=logs[-80:] + [f"Runtime error: {exc}"],
+            logs=logs[-80:] + ["Runtime error during retraining."],
         )
     finally:
-        TRAINING_THREAD = None
+        with TRAINING_LOCK:
+            TRAINING_THREAD = None
 
 
 def _start_retraining(status_message, mode="full"):
     global TRAINING_THREAD
 
-    if TRAINING_THREAD is not None and TRAINING_THREAD.is_alive():
-        raise RuntimeError("Retraining is already running.")
-
     estimated_total_seconds = (
         FAST_TRAINING_ESTIMATE_SECONDS if mode == "fast" else DEFAULT_TRAINING_ESTIMATE_SECONDS
     )
 
-    _set_training_status(
-        state="queued",
-        message=status_message,
-        mode=mode,
-        started_at=_utc_now_iso(),
-        finished_at=None,
-        duration_seconds=None,
-        estimated_total_seconds=estimated_total_seconds,
-        logs=[status_message],
-    )
-    TRAINING_THREAD = threading.Thread(target=_run_training_job, args=(mode,), daemon=True)
-    TRAINING_THREAD.start()
-
     with TRAINING_LOCK:
+        if TRAINING_THREAD is not None and TRAINING_THREAD.is_alive():
+            raise RuntimeError("Retraining is already running.")
+
+        TRAINING_STATUS.update(
+            state="queued",
+            message=status_message,
+            mode=mode,
+            started_at=_utc_now_iso(),
+            finished_at=None,
+            duration_seconds=None,
+            estimated_total_seconds=estimated_total_seconds,
+            logs=[status_message],
+        )
+        TRAINING_THREAD = threading.Thread(target=_run_training_job, args=(mode,), daemon=True)
+        TRAINING_THREAD.start()
         return dict(TRAINING_STATUS)
 
 
@@ -904,10 +967,21 @@ def load_artifacts():
     except Exception as exc:
         ARTIFACTS = {}
         _reset_lime_cache()
+        app.logger.exception("Failed to load model artifacts")
+        print(f"Failed to load model artifacts: {exc}", file=sys.stderr)
         LOAD_ERROR = (
-            "Model artifacts are not ready yet. Run `python train.py` before starting predictions. "
-            f"Details: {exc}"
+            "Model artifacts are not ready yet. Run `python train.py` before starting predictions."
         )
+
+
+def _require_admin_token():
+    expected = os.environ.get("ADMIN_TOKEN")
+    if not expected:
+        return None
+    provided = request.headers.get("X-Admin-Token", "")
+    if provided != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
 
 
 @app.route("/")
@@ -929,59 +1003,64 @@ def predict():
         return jsonify({"error": LOAD_ERROR}), 503
 
     try:
-        payload = request.get_json(silent=True) or {}
-        patient_record, imputed_fields = _prepare_patient_payload(payload)
-        prediction_outputs = _predict_stacked_probabilities([patient_record])
-        patient_scaled = prediction_outputs["scaled_features"][0]
-        ann_probability = _safe_probability(prediction_outputs["base_probabilities"]["ANN"][0])
-        rf_probability = _safe_probability(prediction_outputs["base_probabilities"]["Random Forest"][0])
-        svm_probability = _safe_probability(prediction_outputs["base_probabilities"]["SVM"][0])
-        fuzzy_probability = _safe_probability(prediction_outputs["base_probabilities"]["Fuzzy Logic"][0])
+        with ARTIFACT_LOCK:
+            if not ARTIFACTS:
+                return jsonify({"error": "Model artifacts are not ready yet."}), 503
+            payload = request.get_json(silent=True) or {}
+            patient_record, imputed_fields = _prepare_patient_payload(payload)
+            prediction_outputs = _predict_stacked_probabilities([patient_record])
+            patient_scaled = prediction_outputs["scaled_features"][0]
+            ann_probability = _safe_probability(prediction_outputs["base_probabilities"]["ANN"][0])
+            rf_probability = _safe_probability(prediction_outputs["base_probabilities"]["Random Forest"][0])
+            svm_probability = _safe_probability(prediction_outputs["base_probabilities"]["SVM"][0])
+            fuzzy_probability = _safe_probability(prediction_outputs["base_probabilities"]["Fuzzy Logic"][0])
 
-        model_predictions = {
-            "ANN": round(ann_probability, 4),
-            "Random Forest": round(rf_probability, 4),
-            "Fuzzy Logic": round(fuzzy_probability, 4),
-            "SVM": round(svm_probability, 4),
-        }
-        final_probability = round(_safe_probability(prediction_outputs["final_probabilities"][0]), 4)
-        risk_level = _risk_level(final_probability)
+            model_predictions = {
+                "ANN": round(ann_probability, 4),
+                "Random Forest": round(rf_probability, 4),
+                "Fuzzy Logic": round(fuzzy_probability, 4),
+                "SVM": round(svm_probability, 4),
+            }
+            final_probability = round(_safe_probability(prediction_outputs["final_probabilities"][0]), 4)
+            risk_level = _risk_level(final_probability)
 
-        healthy_frame = pd.DataFrame(
-            [ARTIFACTS["healthy_average"]],
-            columns=ARTIFACTS["all_features"],
-        )
-        healthy_scaled = ARTIFACTS["scaler"].transform(healthy_frame)[0]
-        feature_importance = _build_feature_importance(patient_scaled)
+            healthy_frame = pd.DataFrame(
+                [ARTIFACTS["healthy_average"]],
+                columns=ARTIFACTS["all_features"],
+            )
+            healthy_scaled = ARTIFACTS["scaler"].transform(healthy_frame)[0]
+            feature_importance = _build_feature_importance(patient_scaled)
 
-        response = {
-            "probability": final_probability,
-            "risk_level": risk_level,
-            "model_predictions": model_predictions,
-            "feature_importance": feature_importance,
-            "advice": ADVICE_BY_LEVEL[risk_level],
-            "imputed_fields": imputed_fields,
-            "healthy_average": ARTIFACTS["healthy_average"],
-            "profile_comparison": {
-                "patient": {
-                    feature: round(float(value), 4)
-                    for feature, value in zip(ARTIFACTS["all_features"], patient_scaled)
+            response = {
+                "probability": final_probability,
+                "risk_level": risk_level,
+                "model_predictions": model_predictions,
+                "feature_importance": feature_importance,
+                "advice": ADVICE_BY_LEVEL[risk_level],
+                "imputed_fields": imputed_fields,
+                "healthy_average": ARTIFACTS["healthy_average"],
+                "profile_comparison": {
+                    "patient": {
+                        feature: round(float(value), 4)
+                        for feature, value in zip(ARTIFACTS["all_features"], patient_scaled)
+                    },
+                    "healthy": {
+                        feature: round(float(value), 4)
+                        for feature, value in zip(ARTIFACTS["all_features"], healthy_scaled)
+                    },
                 },
-                "healthy": {
-                    feature: round(float(value), 4)
-                    for feature, value in zip(ARTIFACTS["all_features"], healthy_scaled)
-                },
-            },
-        }
+            }
         return jsonify(response)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
+        app.logger.exception("Prediction failed")
+        print(f"Prediction failed: {exc}", file=sys.stderr)
         return jsonify(
             {
                 "error": (
                     "We could not generate a prediction right now. "
-                    f"Please verify your inputs and try again. Details: {exc}"
+                    "Please verify your inputs and try again. An internal error occurred."
                 )
             }
         ), 500
@@ -989,26 +1068,35 @@ def predict():
 
 @app.route("/api/explain/lime", methods=["POST"])
 def explain_lime():
+    auth_error = _require_admin_token()
+    if auth_error is not None:
+        return auth_error
+
     ensure_artifacts_loaded()
     if LOAD_ERROR is not None:
         return jsonify({"error": LOAD_ERROR}), 503
 
     try:
-        payload = request.get_json(silent=True) or {}
-        patient_record, imputed_fields = _prepare_patient_payload(payload)
-        explanation_payload = _build_lime_explanation(patient_record)
-        explanation_payload["imputed_fields"] = imputed_fields
+        with ARTIFACT_LOCK:
+            if not ARTIFACTS:
+                return jsonify({"error": "Model artifacts are not ready yet."}), 503
+            payload = request.get_json(silent=True) or {}
+            patient_record, imputed_fields = _prepare_patient_payload(payload)
+            explanation_payload = _build_lime_explanation(patient_record)
+            explanation_payload["imputed_fields"] = imputed_fields
         return jsonify(explanation_payload)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 503
     except Exception as exc:
+        app.logger.exception("LIME explanation failed")
+        print(f"LIME explanation failed: {exc}", file=sys.stderr)
         return jsonify(
             {
                 "error": (
                     "We could not generate the LIME explanation right now. "
-                    f"Please try again. Details: {exc}"
+                    "Please try again. An internal error occurred."
                 )
             }
         ), 500
@@ -1043,6 +1131,10 @@ def generate_sample():
 
 @app.route("/api/training-data", methods=["POST"])
 def save_training_data():
+    auth_error = _require_admin_token()
+    if auth_error is not None:
+        return auth_error
+
     try:
         payload = request.get_json(silent=True) or {}
         training_row, imputed_fields = _prepare_training_row(payload)
@@ -1063,13 +1155,20 @@ def save_training_data():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": f"Unable to save training row: {exc}"}), 500
+        app.logger.exception("Unable to save training row")
+        print(f"Unable to save training row: {exc}", file=sys.stderr)
+        return jsonify({"error": "An internal error occurred."}), 500
 
 
 @app.route("/api/training-data", methods=["DELETE"])
 def clear_training_data():
-    if TRAINING_THREAD is not None and TRAINING_THREAD.is_alive():
-        return jsonify({"error": "Cannot remove website data while retraining is running."}), 409
+    auth_error = _require_admin_token()
+    if auth_error is not None:
+        return auth_error
+
+    with TRAINING_LOCK:
+        if TRAINING_THREAD is not None and TRAINING_THREAD.is_alive():
+            return jsonify({"error": "Cannot remove website data while retraining is running."}), 409
 
     try:
         payload = request.get_json(silent=True) or {}
@@ -1077,7 +1176,8 @@ def clear_training_data():
         if retrain_mode not in {"none", "fast", "full"}:
             return jsonify({"error": "retrain_mode must be 'none', 'fast', or 'full'."}), 400
 
-        trained_user_rows = ARTIFACTS.get("training_summary", {}).get("user_rows_used", 0)
+        with ARTIFACT_LOCK:
+            trained_user_rows = ARTIFACTS.get("training_summary", {}).get("user_rows_used", 0)
         clear_user_training_data()
         counts = _get_dataset_counts()
         response_payload = {
@@ -1100,11 +1200,17 @@ def clear_training_data():
             response_payload
         )
     except Exception as exc:
-        return jsonify({"error": f"Unable to remove website-added rows: {exc}"}), 500
+        app.logger.exception("Unable to remove website-added rows")
+        print(f"Unable to remove website-added rows: {exc}", file=sys.stderr)
+        return jsonify({"error": "An internal error occurred."}), 500
 
 
 @app.route("/api/retrain", methods=["POST"])
 def retrain():
+    auth_error = _require_admin_token()
+    if auth_error is not None:
+        return auth_error
+
     try:
         payload = request.get_json(silent=True) or {}
         mode = str(payload.get("mode", "full")).strip().lower()
@@ -1120,7 +1226,9 @@ def retrain():
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 409
     except Exception as exc:
-        return jsonify({"error": f"Unable to start retraining: {exc}"}), 500
+        app.logger.exception("Unable to start retraining")
+        print(f"Unable to start retraining: {exc}", file=sys.stderr)
+        return jsonify({"error": "An internal error occurred."}), 500
 
 
 @app.route("/api/retrain/status", methods=["GET"])

@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
 from src.ann_model import train_ann_model
-from src.data_augmentation import augment_data, get_augmented_dataset_path
+from src.data_augmentation import augment_training_split
 from src.data_cleaning import clean_data, get_cleaned_dataset_path
 from src.data_download import COLUMN_NAMES, download_data, get_project_root
 from src.evaluate import evaluate_models
@@ -86,43 +86,57 @@ def main(mode=FULL_TRAIN_MODE):
     try:
         download_data()
         clean_data()
-        augment_data()
 
         existing_metadata = _load_existing_metadata()
         cleaned_dataframe = pd.read_csv(get_cleaned_dataset_path())
-        augmented_dataframe = pd.read_csv(get_augmented_dataset_path())
+        user_training_dataframe = load_user_training_data()
+
+        if not user_training_dataframe.empty:
+            combined_raw = pd.concat(
+                [cleaned_dataframe, user_training_dataframe], ignore_index=True
+            ).drop_duplicates().reset_index(drop=True)
+        else:
+            combined_raw = cleaned_dataframe.copy()
 
         feature_columns = COLUMN_NAMES[:-1]
-        features = augmented_dataframe[feature_columns]
-        target = augmented_dataframe["target"]
+        raw_features = combined_raw[feature_columns]
+        raw_target = combined_raw["target"]
+
+        x_train_raw_df, x_test_raw_df, y_train_raw, y_test_series = train_test_split(
+            raw_features,
+            raw_target,
+            test_size=0.2,
+            stratify=raw_target,
+            random_state=RANDOM_STATE,
+        )
+        train_index_snapshot = x_train_raw_df.index.copy()
+
+        x_train_aug_df, y_train_aug_series = augment_training_split(
+            x_train_raw_df.reset_index(drop=True),
+            y_train_raw.reset_index(drop=True),
+        )
 
         scaler = MinMaxScaler()
-        scaled_features = scaler.fit_transform(features)
+        x_train_scaled = scaler.fit_transform(x_train_aug_df[feature_columns])
+        x_test_scaled = scaler.transform(x_test_raw_df[feature_columns])
         joblib.dump(scaler, _get_scaler_path())
+
+        y_train = y_train_aug_series.to_numpy()
+        y_test = y_test_series.to_numpy()
 
         selected_indices = _resolve_selected_indices(
             mode,
-            scaled_features,
-            target.to_numpy(),
+            x_train_scaled,
+            y_train,
             feature_columns,
             existing_metadata,
         )
         selected_feature_names = [feature_columns[index] for index in selected_indices]
 
-        row_indices = augmented_dataframe.index.to_numpy()
-        train_indices, test_indices = train_test_split(
-            row_indices,
-            test_size=0.2,
-            stratify=target,
-            random_state=RANDOM_STATE,
-        )
-
-        x_train = scaled_features[train_indices][:, selected_indices]
-        x_test = scaled_features[test_indices][:, selected_indices]
-        y_train = target.iloc[train_indices].to_numpy()
-        y_test = target.iloc[test_indices].to_numpy()
-        x_train_raw = augmented_dataframe.iloc[train_indices][["age", "chol", "thalach"]].reset_index(drop=True)
-        x_test_raw = augmented_dataframe.iloc[test_indices][feature_columns].reset_index(drop=True)
+        x_train = x_train_scaled[:, selected_indices]
+        x_test = x_test_scaled[:, selected_indices]
+        x_train_fuzzy = x_train_aug_df[["age", "chol", "thalach"]].reset_index(drop=True)
+        x_test_raw = x_test_raw_df[feature_columns].reset_index(drop=True)
 
         ann_epochs = 25 if mode == FAST_TRAIN_MODE else 100
         _, ann_predictions, ann_probabilities = train_ann_model(
@@ -168,7 +182,7 @@ def main(mode=FULL_TRAIN_MODE):
         meta_model = train_meta_learner(
             x_train_selected=x_train,
             y_train=y_train,
-            x_train_fuzzy=x_train_raw,
+            x_train_fuzzy=x_train_fuzzy,
             rf_params=rf_model.get_params(),
             svm_params=svm_model.get_params(),
             cv_splits=3 if mode == FAST_TRAIN_MODE else 5,
@@ -185,18 +199,21 @@ def main(mode=FULL_TRAIN_MODE):
             y_test,
         )
 
-        healthy_profile = (
-            cleaned_dataframe.loc[cleaned_dataframe["target"] == 0, feature_columns]
+        train_raw_with_target = combined_raw.loc[train_index_snapshot]
+        healthy_profile_from_train = (
+            train_raw_with_target.loc[train_raw_with_target["target"] == 0, feature_columns]
             .mean()
             .to_dict()
         )
-        user_training_dataframe = load_user_training_data()
+        healthy_profile = healthy_profile_from_train
         training_summary = {
             "raw_rows": len(pd.read_csv(os.path.join(get_project_root(), "data", "raw", "heart_cleveland.csv"))),
             "cleaned_rows": len(cleaned_dataframe),
             "user_rows_used": len(user_training_dataframe),
-            "training_input_total": len(cleaned_dataframe) + len(user_training_dataframe),
-            "augmented_rows": len(augmented_dataframe),
+            "training_input_total": len(combined_raw),
+            "train_split_rows": len(x_train_raw_df),
+            "test_split_rows": len(x_test_raw_df),
+            "augmented_rows": len(x_train_aug_df),
         }
         _save_metadata(feature_columns, selected_indices, healthy_profile, training_summary, mode)
 

@@ -1,7 +1,10 @@
 import os
+import socket
 import urllib.request
 
 import pandas as pd
+
+socket.setdefaulttimeout(30)
 
 DATASET_URL = (
     "https://archive.ics.uci.edu/ml/machine-learning-databases/"

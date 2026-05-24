@@ -15,13 +15,19 @@ def get_cleaned_dataset_path():
     )
 
 
-def _cap_outliers_iqr(dataframe, column_name):
+OUTLIER_CAP_COLUMNS = ("chol", "trestbps", "thalach", "oldpeak")
+
+
+def cap_outliers_iqr(dataframe, column_name):
     q1 = dataframe[column_name].quantile(0.25)
     q3 = dataframe[column_name].quantile(0.75)
     iqr = q3 - q1
     lower_bound = q1 - (1.5 * iqr)
     upper_bound = q3 + (1.5 * iqr)
     dataframe[column_name] = dataframe[column_name].clip(lower=lower_bound, upper=upper_bound)
+
+
+_cap_outliers_iqr = cap_outliers_iqr
 
 
 def clean_data():
@@ -42,8 +48,8 @@ def clean_data():
         dataframe = dataframe.drop_duplicates().reset_index(drop=True)
         dataframe["target"] = (dataframe["target"] > 0).astype(int)
 
-        for column in ["chol", "trestbps", "thalach", "oldpeak"]:
-            _cap_outliers_iqr(dataframe, column)
+        for column in OUTLIER_CAP_COLUMNS:
+            cap_outliers_iqr(dataframe, column)
 
         if dataframe.isna().sum().sum() > 0:
             dataframe = dataframe.fillna(dataframe.median(numeric_only=True))
