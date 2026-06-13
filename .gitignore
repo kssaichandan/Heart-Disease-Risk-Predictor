@@ -6,3 +6,10 @@ __pycache__/
 *.pyd
 *.log
 data/user/*.csv
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
