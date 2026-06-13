@@ -6,6 +6,8 @@ A Flask web application for heart disease risk prediction using ANN, Random Fore
 
 - https://heart-disease-risk-predictor-g82o.onrender.com/
 
+-  https://heart-disease-risk-predictor.kssaichandan.workers.dev
+
 ## What This Project Does
 
 The app lets a user enter patient information and predicts the probability of heart disease. It also shows:
